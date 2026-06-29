@@ -1,16 +1,13 @@
-"""Tests for config.py: parse_repo_path, resolve_auth_headers, MissingAuthError."""
+"""Tests for config.py: parse_repo_path and source loading."""
 
 from __future__ import annotations
 
 import pytest
 
-from cern_mkdocs_mcp.config import (
-    AuthConfig,
-    DocSource,
-    MissingAuthError,
+from combine_mcp.config import (
+    get_default_sources,
     load_sources,
     parse_repo_path,
-    resolve_auth_headers,
 )
 
 # ---------------------------------------------------------------------------
@@ -19,26 +16,24 @@ from cern_mkdocs_mcp.config import (
 
 
 class TestParseRepoPath:
-    def test_typical_gitlab_cern(self) -> None:
+    def test_typical_github(self) -> None:
         path = parse_repo_path(
-            "https://gitlab.cern.ch/atlas/software-docs/atlas-software-docs",
+            "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit",
         )
-        assert path == "atlas/software-docs/atlas-software-docs"
+        assert path == "cms-analysis/HiggsAnalysis-CombinedLimit"
 
     def test_short_two_segment_path(self) -> None:
-        assert parse_repo_path("https://gitlab.cern.ch/batch/batchdocs") == (
-            "batch/batchdocs"
-        )
+        assert parse_repo_path("https://github.com/foo/bar") == "foo/bar"
 
     def test_strips_trailing_dot_git(self) -> None:
         assert parse_repo_path(
-            "https://gitlab.com/foo/bar.git",
+            "https://github.com/foo/bar.git",
         ) == "foo/bar"
 
     def test_trailing_slash_stripped(self) -> None:
         assert parse_repo_path(
-            "https://gitlab.cern.ch/atlas/docs/",
-        ) == "atlas/docs"
+            "https://github.com/foo/bar/",
+        ) == "foo/bar"
 
     def test_no_host_raises(self) -> None:
         with pytest.raises(ValueError, match="no host"):
@@ -46,131 +41,31 @@ class TestParseRepoPath:
 
     def test_empty_path_raises(self) -> None:
         with pytest.raises(ValueError, match="no path"):
-            parse_repo_path("https://gitlab.cern.ch/")
+            parse_repo_path("https://github.com/")
 
 
 # ---------------------------------------------------------------------------
-# resolve_auth_headers
-# ---------------------------------------------------------------------------
-
-_PUBLIC = DocSource(
-    id="batch",
-    name="HTCondor Batch",
-    search_index_url="https://batchdocs.web.cern.ch/search/search_index.json",
-    repo_url="https://gitlab.cern.ch/batch/batchdocs",
-    docs_site_url="https://batchdocs.web.cern.ch",
-    auth=None,
-)
-
-_GATED = DocSource(
-    id="atlas-computing",
-    name="ATLAS Computing",
-    search_index_url=(
-        "https://atlas-computing.docs.cern.ch/search/search_index.json"
-    ),
-    repo_url=(
-        "https://gitlab.cern.ch/atlas/computing-docs/atlas-computing-docs"
-    ),
-    docs_site_url="https://atlas-computing.docs.cern.ch",
-    auth=AuthConfig(env_var="DOCS_MCP_CERN_SSO_TOKEN"),
-)
-
-_GITLAB_PAT = DocSource(
-    id="private-gitlab",
-    name="Private GitLab",
-    search_index_url="https://private.example.com/search/search_index.json",
-    repo_url="https://gitlab.example.com/group/repo",
-    docs_site_url="https://private.example.com",
-    auth=AuthConfig(
-        env_var="MY_GITLAB_PAT",
-        header="Private-Token",
-        prefix="",
-    ),
-)
-
-
-class TestResolveAuthHeaders:
-    def test_public_source_returns_empty(self) -> None:
-        assert resolve_auth_headers(_PUBLIC) == {}
-
-    def test_missing_env_raises(self) -> None:
-        # Ensure the var is absent (monkeypatch not needed; if it happens to
-        # be set in the environment, skip gracefully).
-        import os
-        if os.environ.get("DOCS_MCP_CERN_SSO_TOKEN"):
-            pytest.skip("env var is set in the test environment")
-        with pytest.raises(MissingAuthError) as exc_info:
-            resolve_auth_headers(_GATED)
-        err = exc_info.value
-        assert err.source_id == "atlas-computing"
-        assert err.env_var == "DOCS_MCP_CERN_SSO_TOKEN"
-
-    def test_bearer_token_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("DOCS_MCP_CERN_SSO_TOKEN", "mytoken")
-        headers = resolve_auth_headers(_GATED)
-        assert headers == {"Authorization": "Bearer mytoken"}
-
-    def test_private_token_header(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MY_GITLAB_PAT", "glpat-xxxx")
-        headers = resolve_auth_headers(_GITLAB_PAT)
-        assert headers == {"Private-Token": "glpat-xxxx"}
-
-    def test_whitespace_only_token_raises(
-        self, monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        monkeypatch.setenv("DOCS_MCP_CERN_SSO_TOKEN", "   ")
-        with pytest.raises(MissingAuthError):
-            resolve_auth_headers(_GATED)
-
-
-# ---------------------------------------------------------------------------
-# MissingAuthError
+# load_sources
 # ---------------------------------------------------------------------------
 
 
-class TestMissingAuthError:
-    def test_attributes(self) -> None:
-        err = MissingAuthError("my-source", "MY_ENV_VAR")
-        assert err.source_id == "my-source"
-        assert err.env_var == "MY_ENV_VAR"
-        assert "MY_ENV_VAR" in str(err)
-        assert "my-source" in str(err)
-
-    def test_is_exception(self) -> None:
-        with pytest.raises(MissingAuthError):
-            raise MissingAuthError("x", "Y")
-
-
-class TestLoadSourcesSourceType:
+class TestLoadSourcesSchema:
     def test_mkdocs_default(self, tmp_path: pytest.TempPathFactory) -> None:
         p = tmp_path / "s.json"  # type: ignore[attr-defined]
         p.write_text(
-            '{"sources": [{"id":"a","name":"A","repo_url":"https://x/y/z",'
+            '{"sources":[{"id":"a","name":"A","repo_url":"https://github.com/x/y",'
             '"docs_site_url":"https://x","search_index_url":"https://x/s.json"}]}'
         )
         sources = load_sources(p)
         assert sources["a"].source_type == "mkdocs"
         assert sources["a"].default_branch == "main"
 
-    def test_gitbook_explicit(self, tmp_path: pytest.TempPathFactory) -> None:
-        p = tmp_path / "s.json"  # type: ignore[attr-defined]
-        p.write_text(
-            '{"sources": [{"id":"fts","name":"FTS","repo_url":"https://x/y/z",'
-            '"docs_site_url":"https://x","source_type":"gitbook",'
-            '"default_branch":"master","summary_path":"SUMMARY.md"}]}'
-        )
-        sources = load_sources(p)
-        assert sources["fts"].source_type == "gitbook"
-        assert sources["fts"].default_branch == "master"
-        assert sources["fts"].summary_path == "SUMMARY.md"
-        assert sources["fts"].search_index_url is None
-
-    def test_unknown_source_type_rejected(
+    def test_non_mkdocs_source_type_rejected(
         self, tmp_path: pytest.TempPathFactory,
     ) -> None:
         p = tmp_path / "s.json"  # type: ignore[attr-defined]
         p.write_text(
-            '{"sources":[{"id":"x","name":"X","repo_url":"https://a/b/c",'
+            '{"sources":[{"id":"x","name":"X","repo_url":"https://github.com/a/b",'
             '"docs_site_url":"https://x","source_type":"sphinx"}]}'
         )
         with pytest.raises(ValueError, match="source_type"):
@@ -181,8 +76,123 @@ class TestLoadSourcesSourceType:
     ) -> None:
         p = tmp_path / "s.json"  # type: ignore[attr-defined]
         p.write_text(
-            '{"sources":[{"id":"x","name":"X","repo_url":"https://a/b/c",'
+            '{"sources":[{"id":"x","name":"X","repo_url":"https://github.com/a/b",'
             '"docs_site_url":"https://x"}]}'
         )
         with pytest.raises(ValueError, match="search_index_url"):
             load_sources(p)
+
+
+class TestVcsProvider:
+    def test_github_is_default(self, tmp_path: pytest.TempPathFactory) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"a","name":"A","repo_url":"https://github.com/x/y",'
+            '"docs_site_url":"https://x","search_index_url":"https://x/s.json"}]}'
+        )
+        sources = load_sources(p)
+        assert sources["a"].vcs_provider == "github"
+
+    def test_unknown_vcs_provider_rejected(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"x","name":"X","repo_url":"https://a/b/c",'
+            '"docs_site_url":"https://x","search_index_url":"https://x/s.json",'
+            '"vcs_provider":"bitbucket"}]}'
+        )
+        with pytest.raises(ValueError, match="vcs_provider"):
+            load_sources(p)
+
+
+class TestDefaultSourcesIncludeCombineDocs:
+    """The bundled ``docs_sources.json`` should register the Combine docs."""
+
+    def test_combine_docs_registered(self) -> None:
+        sources = get_default_sources()
+        assert "combine-docs" in sources
+
+    def test_combine_docs_uses_github_provider(self) -> None:
+        src = get_default_sources()["combine-docs"]
+        assert src.vcs_provider == "github"
+        assert "github.com/cms-analysis/HiggsAnalysis-CombinedLimit" in src.repo_url
+        assert src.docs_site_url.startswith(
+            "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit",
+        )
+
+    def test_default_sources_present(self) -> None:
+        """The bundled config ships the docs and paper sources."""
+        ids = set(get_default_sources().keys())
+        assert "combine-docs" in ids
+        assert "combine-paper" in ids
+
+
+class TestLocalPaperSource:
+    def test_local_paper_loads(self, tmp_path: pytest.TempPathFactory) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"p","name":"P","repo_url":"https://arxiv.org/abs/X",'
+            '"docs_site_url":"https://arxiv.org/abs/X","source_type":"local-paper",'
+            '"local_path":"/tmp/paper.txt"}]}'
+        )
+        sources = load_sources(p)
+        assert sources["p"].source_type == "local-paper"
+        assert sources["p"].local_path == "/tmp/paper.txt"
+
+    def test_local_paper_requires_local_path(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"p","name":"P","repo_url":"https://arxiv.org/abs/X",'
+            '"docs_site_url":"https://arxiv.org/abs/X","source_type":"local-paper"}]}'
+        )
+        with pytest.raises(ValueError, match="local_path"):
+            load_sources(p)
+
+
+class TestLocalPathResolution:
+    def test_absolute_local_path_passes_through(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        cfg = tmp_path / "s.json"  # type: ignore[attr-defined]
+        cfg.write_text(
+            '{"sources":[{"id":"p","name":"P","repo_url":"https://arxiv.org/abs/X",'
+            '"docs_site_url":"https://arxiv.org/abs/X","source_type":"local-paper",'
+            '"local_path":"/var/tmp/paper.txt"}]}'
+        )
+        sources = load_sources(cfg)
+        assert sources["p"].local_path == "/var/tmp/paper.txt"
+
+    def test_relative_local_path_resolved_against_config_dir(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        # Place the JSON in a subdir of tmp_path and use a relative
+        # local_path that points one level up to a file we create.
+        cfg_dir = tmp_path / "conf"  # type: ignore[attr-defined]
+        cfg_dir.mkdir()
+        (tmp_path / "paper.txt").write_text("hi")  # type: ignore[attr-defined]
+        cfg = cfg_dir / "s.json"
+        cfg.write_text(
+            '{"sources":[{"id":"p","name":"P","repo_url":"https://arxiv.org/abs/X",'
+            '"docs_site_url":"https://arxiv.org/abs/X","source_type":"local-paper",'
+            '"local_path":"../paper.txt"}]}'
+        )
+        sources = load_sources(cfg)
+        resolved = sources["p"].local_path
+        assert resolved is not None
+        # Resolved path is absolute and points at the existing file.
+        from pathlib import Path as _P
+        assert _P(resolved).is_absolute()
+        assert _P(resolved) == (tmp_path / "paper.txt").resolve()  # type: ignore[attr-defined]
+
+    def test_bundled_paper_path_resolves_to_existing_file(self) -> None:
+        """The bundled docs_sources.json ships a relative path; it must
+        resolve to a file that actually exists in the repo."""
+        from pathlib import Path as _P
+        sources = get_default_sources()
+        local_path = sources["combine-paper"].local_path
+        assert local_path is not None
+        assert _P(local_path).is_file()
+        assert _P(local_path).name == "paper_clean.txt"

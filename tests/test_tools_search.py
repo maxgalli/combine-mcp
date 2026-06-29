@@ -6,32 +6,56 @@ import json
 from typing import Any
 from unittest.mock import MagicMock
 
-from cern_mkdocs_mcp.tools.search import register
+from combine_mcp.tools.search import register
 from tests.conftest import capture_tools
 
+# Combine-flavoured payload. Three docs so BM25 IDF stays positive for
+# single-doc terms (df < N/2 keeps log() > 0).
 SAMPLE_PAYLOAD = {
     "docs": [
         {
-            "location": "athena/configuration/",
-            "title": "Athena configuration",
+            "location": "part3/runningthetool/",
+            "title": "Running the tool",
             "text": (
-                "Configuring jobs in Athena uses the ComponentAccumulator "
-                "API."
+                "Use combine -M FitDiagnostics to run a maximum-likelihood "
+                "fit and diagnose nuisance pulls."
             ),
         },
         {
-            "location": "analysis/grid/",
-            "title": "Running on the grid",
-            "text": "Submit analysis jobs to the WLCG grid via prun.",
+            "location": "part3/debugging/",
+            "title": "Debugging fits",
+            "text": (
+                "Use combineTool.py -M FastScan to scan the NLL for each "
+                "parameter individually."
+            ),
         },
-        # Decoy: present so single-doc terms ("athena", "grid") have
-        # df < N/2, which keeps their BM25 IDF strictly positive. With
-        # only two docs, df=1 yields IDF = log(1.5/1.5) = 0 and the
-        # search would return nothing (DocsIndex.search filters score>0).
         {
-            "location": "developers/git/",
-            "title": "Git workflow",
-            "text": "Use feature branches and merge requests for code review.",
+            "location": "part2/settinguptheanalysis/",
+            "title": "Preparing the datacard",
+            "text": (
+                "Declare a rateParam to let a process rate float freely "
+                "during the fit."
+            ),
+        },
+    ],
+}
+
+SAMPLE_PAYLOAD_SYNTHETIC = {
+    "docs": [
+        {
+            "location": "intro/",
+            "title": "Intro",
+            "text": "Welcome to the synthetic test corpus.",
+        },
+        {
+            "location": "tutorial/",
+            "title": "Tutorial",
+            "text": "A second page to keep BM25 IDF non-degenerate.",
+        },
+        {
+            "location": "advanced/",
+            "title": "Advanced",
+            "text": "A third page on advanced topics.",
         },
     ],
 }
@@ -48,14 +72,14 @@ class TestSearchTool:
         tools = capture_tools(register)
 
         result = await tools["search_docs"](
-            query="athena configuration", ctx=mock_ctx,
+            query="FitDiagnostics", ctx=mock_ctx,
         )
         data = json.loads(result)
-        assert data["query"] == "athena configuration"
-        assert data["source"] == "atlas-sft"  # default
+        assert data["query"] == "FitDiagnostics"
+        assert data["source"] == "combine-docs"  # default
         assert data["returned"] >= 1
         top = data["results"][0]
-        assert "athena" in top["url"].lower()
+        assert "runningthetool" in top["url"]
         assert top["snippet"]
         assert data["hint"] is None
         assert data["next_action"] and "fetch_doc" in data["next_action"]
@@ -68,9 +92,7 @@ class TestSearchTool:
             query="anything", source="bogus-not-registered", ctx=mock_ctx,
         )
         assert "Recovery steps" in result
-        # Mentions valid sources from the sample registry.
-        assert "atlas-sft" in result
-        assert "batch" in result
+        assert "combine-docs" in result
 
     async def test_routes_to_correct_source(
         self,
@@ -78,38 +100,22 @@ class TestSearchTool:
         mock_http: MagicMock,
         make_response: Any,
     ) -> None:
-        mock_http.get.return_value = make_response(json_data={
-            "docs": [
-                {
-                    "location": "tutorial/condor_submit/",
-                    "title": "condor_submit tutorial",
-                    "text": "Submit a HTCondor job with condor_submit.",
-                },
-                {
-                    "location": "advanced/scheduling/",
-                    "title": "scheduling",
-                    "text": "Configure scheduling priorities for fair use.",
-                },
-                {
-                    "location": "extras/security/",
-                    "title": "security",
-                    "text": "Tokens secure jobs across pools.",
-                },
-            ],
-        })
+        mock_http.get.return_value = make_response(
+            json_data=SAMPLE_PAYLOAD_SYNTHETIC,
+        )
         tools = capture_tools(register)
 
         result = await tools["search_docs"](
-            query="condor", source="batch", ctx=mock_ctx,
+            query="synthetic", source="synthetic", ctx=mock_ctx,
         )
         data = json.loads(result)
-        assert data["source"] == "batch"
-        # The URL of any hit must come from the batch source's docs_site.
+        assert data["source"] == "synthetic"
+        # All hit URLs come from the synthetic source's docs_site.
         for hit in data["results"]:
-            assert hit["url"].startswith("https://batchdocs.web.cern.ch/")
-        # The URL the index downloaded from is the batch source's payload.
+            assert hit["url"].startswith("https://example.test/")
+        # The index downloaded from the synthetic source's payload.
         called_url = mock_http.get.call_args.args[0]
-        assert called_url == "https://batchdocs.web.cern.ch/search/search_index.json"
+        assert called_url == "https://example.test/search/search_index.json"
 
     async def test_empty_results_includes_hint(
         self,
@@ -137,12 +143,12 @@ class TestSearchTool:
         tools = capture_tools(register)
 
         result = await tools["search_docs"](
-            query="athena", ctx=mock_ctx,
+            query="FitDiagnostics", ctx=mock_ctx,
         )
         assert "network down" in result
         assert "Recovery steps" in result
         # Recovery message names the affected source's site.
-        assert "atlas-software.docs.cern.ch" in result
+        assert "cms-analysis.github.io" in result
 
     async def test_limit_clamped(
         self,
@@ -154,7 +160,7 @@ class TestSearchTool:
         tools = capture_tools(register)
 
         result = await tools["search_docs"](
-            query="athena", limit=500, ctx=mock_ctx,
+            query="FitDiagnostics", limit=500, ctx=mock_ctx,
         )
         data = json.loads(result)
         assert data["limit"] == 25  # _MAX_LIMIT
@@ -168,10 +174,9 @@ class TestSearchTool:
         mock_http.get.return_value = make_response(json_data=SAMPLE_PAYLOAD)
         tools = capture_tools(register)
 
-        await tools["search_docs"](query="athena", ctx=mock_ctx)
-        await tools["search_docs"](query="grid", ctx=mock_ctx)
-        # Same source -> the MkDocs payload is downloaded exactly once
-        # thanks to DocsIndex's TTL cache.
+        await tools["search_docs"](query="FitDiagnostics", ctx=mock_ctx)
+        await tools["search_docs"](query="rateParam", ctx=mock_ctx)
+        # Same source -> payload downloaded once thanks to DocsIndex TTL.
         assert mock_http.get.call_count == 1
 
     async def test_each_source_loads_its_own_index(
@@ -180,50 +185,25 @@ class TestSearchTool:
         mock_http: MagicMock,
         make_response: Any,
     ) -> None:
-        mock_http.get.return_value = make_response(json_data=SAMPLE_PAYLOAD)
+        mock_http.get.side_effect = [
+            make_response(json_data=SAMPLE_PAYLOAD),
+            make_response(json_data=SAMPLE_PAYLOAD_SYNTHETIC),
+        ]
         tools = capture_tools(register)
 
         await tools["search_docs"](
-            query="athena", source="atlas-sft", ctx=mock_ctx,
+            query="FitDiagnostics", source="combine-docs", ctx=mock_ctx,
         )
         await tools["search_docs"](
-            query="condor", source="batch", ctx=mock_ctx,
+            query="synthetic", source="synthetic", ctx=mock_ctx,
         )
         # One fetch per source.
         assert mock_http.get.call_count == 2
         called_urls = {c.args[0] for c in mock_http.get.call_args_list}
         assert called_urls == {
-            "https://atlas-software.docs.cern.ch/search/search_index.json",
-            "https://batchdocs.web.cern.ch/search/search_index.json",
+            (
+                "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit"
+                "/latest/search/search_index.json"
+            ),
+            "https://example.test/search/search_index.json",
         }
-
-    async def test_missing_auth_returns_recovery(
-        self,
-        mock_ctx: MagicMock,
-    ) -> None:
-        """Auth-gated source without env var set returns a Recovery Guide."""
-        tools = capture_tools(register)
-
-        result = await tools["search_docs"](
-            query="athena", source="atlas-computing", ctx=mock_ctx,
-        )
-        assert "Recovery steps" in result
-        assert "DOCS_MCP_CERN_SSO_TOKEN" in result
-
-    async def test_present_auth_passes_bearer_header(
-        self,
-        mock_ctx: MagicMock,
-        mock_http: MagicMock,
-        make_response: Any,
-        monkeypatch: Any,
-    ) -> None:
-        """When the env var is set the Bearer token reaches the HTTP call."""
-        monkeypatch.setenv("DOCS_MCP_CERN_SSO_TOKEN", "test-sso-token")
-        mock_http.get.return_value = make_response(json_data=SAMPLE_PAYLOAD)
-        tools = capture_tools(register)
-
-        await tools["search_docs"](
-            query="athena", source="atlas-computing", ctx=mock_ctx,
-        )
-        called_headers = mock_http.get.call_args.kwargs.get("headers") or {}
-        assert called_headers.get("Authorization") == "Bearer test-sso-token"

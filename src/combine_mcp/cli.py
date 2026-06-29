@@ -1,20 +1,19 @@
-"""Command-line interface for docs-mcp."""
+"""Command-line interface for combine-mcp."""
 
 from __future__ import annotations
 
 import argparse
 from pathlib import Path
 
-from cern_mkdocs_mcp.server import serve
+from combine_mcp.server import serve
 
 
 def main() -> None:
-    """Entry point for the ``docs-mcp`` command."""
+    """Entry point for the ``combine-mcp`` command."""
     parser = argparse.ArgumentParser(
-        prog="docs-mcp",
+        prog="combine-mcp",
         description=(
-            "MCP Server for searching multiple MkDocs-based documentation "
-            "sites via a unified interface."
+            "MCP server exposing the CMS Combine documentation corpus."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")

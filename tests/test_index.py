@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cern_mkdocs_mcp.tools._index import (
+from combine_mcp.tools._index import (
     DocsIndex,
     _make_snippet,
     _section_of,

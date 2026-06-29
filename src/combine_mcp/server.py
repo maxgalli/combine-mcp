@@ -1,4 +1,4 @@
-"""FastMCP server setup for docs-mcp (multi-source documentation)."""
+"""FastMCP server setup for the Combine docs MCP."""
 
 from __future__ import annotations
 
@@ -11,34 +11,35 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
     from pathlib import Path
 
-from cern_mkdocs_mcp.config import (
+from combine_mcp.config import (
     DocSource,
     get_default_sources,
     load_sources,
 )
-from cern_mkdocs_mcp.nomenclature import ATLAS_SOFTWARE_DOCS_GUIDE
-from cern_mkdocs_mcp.resources import register as register_resources
-from cern_mkdocs_mcp.tools import fetch, search
-from cern_mkdocs_mcp.tools._gitbook_index import GitBookIndex
-from cern_mkdocs_mcp.tools._index import DocsIndex
-
-DEFAULT_GITLAB_API = "https://gitlab.cern.ch/api/v4"
+from combine_mcp.nomenclature import COMBINE_DOCS_GUIDE
+from combine_mcp.resources import register as register_resources
+from combine_mcp.tools import fetch, search
+from combine_mcp.tools._index import DocsIndex
+from combine_mcp.tools._paper_index import PaperIndex
 
 
-def _build_index(src: DocSource, gitlab_api: str) -> DocsIndex | GitBookIndex:
+def _build_index(src: DocSource) -> DocsIndex | PaperIndex:
     """Pick the right index backend for a source.
 
-    MkDocs sources read a published ``search_index.json``; GitBook
-    sources walk a ``SUMMARY.md`` and fetch each linked page from
-    the GitLab Files API.
+    - ``mkdocs`` -> :class:`DocsIndex` over the published search payload.
+    - ``local-paper`` -> :class:`PaperIndex` over a single local file
+      split into sections.
+
+    Both expose the same ``ensure_fresh`` / ``search`` interface so the
+    rest of the server doesn't need to branch.
     """
-    if src.source_type == "gitbook":
-        return GitBookIndex(
-            repo_path=src.gitlab_project_path,
+    if src.source_type == "local-paper":
+        if src.local_path is None:
+            msg = f"source {src.id!r}: local-paper requires local_path"
+            raise ValueError(msg)
+        return PaperIndex(
+            local_path=src.local_path,
             docs_site_url=src.docs_site_url,
-            gitlab_api=gitlab_api,
-            summary_path=src.summary_path,
-            default_branch=src.default_branch,
         )
     return DocsIndex(search_index_url=src.search_index_url)
 
@@ -54,18 +55,13 @@ def _build_instructions(sources: dict[str, DocSource]) -> str:
         for src in sorted(sources.values(), key=lambda s: s.id)
     )
     return (
-        "MCP server for searching multiple CERN documentation sites via a "
-        "unified interface. Two site shapes are supported: MkDocs (BM25 "
-        "over the published /search/search_index.json) and legacy GitBook "
-        "(BM25 over the markdown files referenced by SUMMARY.md). Also "
-        "provides Markdown source retrieval. Read-only. Public sources "
-        "need no credentials; auth-gated sources require the matching "
-        "env var to be set.\n\n"
+        "MCP server exposing the CMS Combine documentation as a "
+        "queryable corpus. BM25 over the published MkDocs "
+        "search_index.json; Markdown bodies fetched live from GitHub. "
+        "Read-only.\n\n"
         f"Registered sources:\n{rows}\n\n"
-        "Use search_docs(source='<id>') to query one source. "
-        "Each source is independent; cross-source queries require one "
-        "call per source.\n\n"
-        + ATLAS_SOFTWARE_DOCS_GUIDE
+        "Use search_docs(source='<id>') to query one source.\n\n"
+        + COMBINE_DOCS_GUIDE
     )
 
 
@@ -100,8 +96,8 @@ def _make_mcp(
         import httpx  # noqa: PLC0415
 
         async with httpx.AsyncClient(timeout=30.0) as http:
-            indices: dict[str, DocsIndex | GitBookIndex] = {
-                source_id: _build_index(src, DEFAULT_GITLAB_API)
+            indices: dict[str, DocsIndex] = {
+                source_id: _build_index(src)
                 for source_id, src in sources.items()
             }
 
@@ -109,11 +105,10 @@ def _make_mcp(
                 "http": http,
                 "indices": indices,
                 "sources": sources,
-                "gitlab_api": DEFAULT_GITLAB_API,
             }
 
     mcp = FastMCP(
-        "docs-mcp",
+        "combine-mcp",
         lifespan=_lifespan,
         instructions=_build_instructions(sources),
         host=host,

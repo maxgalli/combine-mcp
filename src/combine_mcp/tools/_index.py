@@ -12,7 +12,7 @@ dependency (``rank_bm25``).
 
 Module-level helpers (``_tokenize``, ``_make_snippet``, ``_section_of``,
 ``_strip_anchor``, ``_absolute_url``) are also reused by the GitBook
-backend in :mod:`cern_mkdocs_mcp.tools._gitbook_index`.
+backend in :mod:`combine_mcp.tools._gitbook_index`.
 """
 
 from __future__ import annotations

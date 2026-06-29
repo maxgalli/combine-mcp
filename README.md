@@ -1,4 +1,4 @@
-# cern-mkdocs-mcp
+# combine-mcp
 
 MCP Server for searching multiple CERN documentation sites via a unified interface. Supports two site shapes: **MkDocs** (BM25 over the published `search_index.json`) and legacy **GitBook v2/CLI** (BM25 over the markdown files listed in `SUMMARY.md`, walked once per 24 h).
 
@@ -14,7 +14,7 @@ batch, cloud, ML@CERN, SWAN, FTS3, and more) without crawling.
 ## Architecture
 
 ```
-LLM <--MCP/stdio|HTTP--> cern-mkdocs-mcp serve
+LLM <--MCP/stdio|HTTP--> combine-mcp serve
                             |
                             +-- MkDocs sources (search_index.json -> BM25)
                             |   +-- atlas-sft, atlas-computing, atlas-databases
@@ -38,7 +38,7 @@ are pulled live from VCS on demand for both backends.
 ## Installation
 
 ```bash
-pip install cern-mkdocs-mcp
+pip install combine-mcp
 ```
 
 Or with pixi:
@@ -52,19 +52,19 @@ pixi install
 ### As an MCP server (stdio)
 
 ```bash
-cern-mkdocs-mcp serve
+combine-mcp serve
 ```
 
 Or with a custom config file:
 
 ```bash
-cern-mkdocs-mcp serve --config /path/to/docs-sources.json
+combine-mcp serve --config /path/to/docs-sources.json
 ```
 
 ### As a remote MCP (Streamable HTTP)
 
 ```bash
-cern-mkdocs-mcp serve --transport streamable-http --port 8000
+combine-mcp serve --transport streamable-http --port 8000
 ```
 
 This is the deployment shape used by MCP servers at `*.app.cern.ch/mcp`.
@@ -75,7 +75,7 @@ This is the deployment shape used by MCP servers at `*.app.cern.ch/mcp`.
 {
   "mcpServers": {
     "docs": {
-      "command": "cern-mkdocs-mcp",
+      "command": "combine-mcp",
       "args": ["serve"]
     }
   }
@@ -90,7 +90,7 @@ In `opencode.json`:
 "mcp": {
   "docs": {
     "type": "remote",
-    "url": "https://cern-mkdocs-mcp.app.cern.ch/mcp",
+    "url": "https://combine-mcp.app.cern.ch/mcp",
     "oauth": false
   }
 }
@@ -179,7 +179,7 @@ Then set the environment variable before starting the server:
 
 ```bash
 export MY_INTERNAL_DOCS_TOKEN="<your-token>"
-cern-mkdocs-mcp serve --config my-sources.json
+combine-mcp serve --config my-sources.json
 ```
 
 The token is read once per request and attached as
@@ -278,7 +278,7 @@ and the GitLab raw fetcher is mocked. No CERN network access required.
 
 | MCP | Scope |
 |-----|-------|
-| `cern-mkdocs-mcp` (this) | Multi-source: ATLAS software/computing/databases, Batch, Cloud, ML@CERN, SWAN |
+| `combine-mcp` (this) | Multi-source: ATLAS software/computing/databases, Batch, Cloud, ML@CERN, SWAN |
 | [`cernopendata-mcp`](../cernopendata-mcp) | CERN Open Data portal records, files, glossary |
 | [`atlasopenmagic-mcp`](../atlasopenmagic-mcp) | ATLAS metadata catalogue (AMI), dataset / run-list lookups |
 

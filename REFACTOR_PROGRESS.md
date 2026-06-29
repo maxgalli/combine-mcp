@@ -28,7 +28,7 @@
    - Changed instructions to mention multi-source capability
    - Modified `_make_mcp()` to load all sources
    - Changed lifespan to create multiple `DocsIndex` instances
-   - Updated MCP name from "cern-mkdocs-mcp" to "docs-mcp"
+   - Updated MCP name from "combine-mcp" to "docs-mcp"
 
 5. **Updated `README.md`** to reflect multi-source design
 

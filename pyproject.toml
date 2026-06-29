@@ -3,7 +3,7 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "cern-mkdocs-mcp"
+name = "combine-mcp"
 authors = [
   { name = "Giovanni Guerrieri", email = "giorgio.ravelli66@gmail.com" },
 ]
@@ -36,17 +36,17 @@ dependencies = [
 ]
 
 [project.scripts]
-cern-mkdocs-mcp = "cern_mkdocs_mcp.cli:main"
+combine-mcp = "combine_mcp.cli:main"
 
 [project.urls]
 Homepage = "https://atlas-software.docs.cern.ch"
-"Bug Tracker" = "https://github.com/atlas-outreach-data-tools/cern-mkdocs-mcp/issues"
+"Bug Tracker" = "https://github.com/atlas-outreach-data-tools/combine-mcp/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/cern_mkdocs_mcp"]
+packages = ["src/combine_mcp"]
 
 [tool.hatch.build.targets.wheel.force-include]
-"src/cern_mkdocs_mcp/docs_sources.json" = "cern_mkdocs_mcp/docs_sources.json"
+"src/combine_mcp/docs_sources.json" = "combine_mcp/docs_sources.json"
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -58,7 +58,7 @@ include = [
 ]
 
 [tool.hatch]
-version.path = "src/cern_mkdocs_mcp/__init__.py"
+version.path = "src/combine_mcp/__init__.py"
 
 [tool.hatch.envs.default]
 dependency-groups = ["dev"]
@@ -96,7 +96,7 @@ asyncio_mode = "auto"
 
 
 [tool.coverage]
-run.source = ["cern_mkdocs_mcp"]
+run.source = ["combine_mcp"]
 report.exclude_also = [
   '\.\.\.',
   'if typing.TYPE_CHECKING:',
@@ -113,7 +113,7 @@ disallow_untyped_defs = false
 disallow_incomplete_defs = false
 
 [[tool.mypy.overrides]]
-module = "cern_mkdocs_mcp.*"
+module = "combine_mcp.*"
 disallow_untyped_defs = true
 disallow_incomplete_defs = true
 

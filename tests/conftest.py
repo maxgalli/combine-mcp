@@ -6,9 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from cern_mkdocs_mcp.config import AuthConfig, DocSource
-from cern_mkdocs_mcp.tools._gitbook_index import GitBookIndex
-from cern_mkdocs_mcp.tools._index import DocsIndex
+from combine_mcp.config import DocSource
+from combine_mcp.tools._index import DocsIndex
 
 
 @pytest.fixture
@@ -52,59 +51,47 @@ def make_response() -> Any:
 
 @pytest.fixture
 def empty_index() -> DocsIndex:
-    """A DocsIndex bound to atlas-sft, with no docs loaded yet."""
-    return DocsIndex(docs_base="https://atlas-software.docs.cern.ch")
+    """A DocsIndex bound to combine-docs, with no docs loaded yet."""
+    return DocsIndex(
+        search_index_url=(
+            "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit"
+            "/latest/search/search_index.json"
+        ),
+    )
 
 
 @pytest.fixture
 def sample_sources() -> dict[str, DocSource]:
-    """A two-source registry used by the tool tests.
+    """Two GitHub-backed sources used by the tool tests.
 
-    ``atlas-sft`` mirrors the real default; ``batch`` is a second source
-    so tests can verify per-source routing without depending on the
-    full bundled config.
+    ``combine-docs`` is the real default; ``synthetic`` is a second
+    source so multi-source routing tests don't depend on a single ID.
     """
     return {
-        "atlas-sft": DocSource(
-            id="atlas-sft",
-            name="ATLAS Software",
+        "combine-docs": DocSource(
+            id="combine-docs",
+            name="CMS Combine",
             search_index_url=(
-                "https://atlas-software.docs.cern.ch/search/search_index.json"
+                "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit"
+                "/latest/search/search_index.json"
             ),
             repo_url=(
-                "https://gitlab.cern.ch/atlas/software-docs/atlas-software-docs"
+                "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit"
             ),
-            docs_site_url="https://atlas-software.docs.cern.ch",
+            docs_site_url=(
+                "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest"
+            ),
+            vcs_provider="github",
+            default_branch="main",
         ),
-        "batch": DocSource(
-            id="batch",
-            name="HTCondor Batch",
-            search_index_url=(
-                "https://batchdocs.web.cern.ch/search/search_index.json"
-            ),
-            repo_url="https://gitlab.cern.ch/batch/batchdocs",
-            docs_site_url="https://batchdocs.web.cern.ch",
-        ),
-        "atlas-computing": DocSource(
-            id="atlas-computing",
-            name="ATLAS Computing",
-            search_index_url=(
-                "https://atlas-computing.docs.cern.ch/search/search_index.json"
-            ),
-            repo_url=(
-                "https://gitlab.cern.ch/atlas/computing-docs/atlas-computing-docs"
-            ),
-            docs_site_url="https://atlas-computing.docs.cern.ch",
-            auth=AuthConfig(env_var="DOCS_MCP_CERN_SSO_TOKEN"),
-        ),
-        "fts": DocSource(
-            id="fts",
-            name="FTS3 (File Transfer Service)",
-            repo_url="https://gitlab.cern.ch/fts/documentation",
-            docs_site_url="https://fts3-docs.web.cern.ch/fts3-docs",
-            source_type="gitbook",
-            summary_path="SUMMARY.md",
-            default_branch="master",
+        "synthetic": DocSource(
+            id="synthetic",
+            name="Synthetic Test Source",
+            search_index_url="https://example.test/search/search_index.json",
+            repo_url="https://github.com/example/test-docs",
+            docs_site_url="https://example.test",
+            vcs_provider="github",
+            default_branch="main",
         ),
     }
 
@@ -112,24 +99,12 @@ def sample_sources() -> dict[str, DocSource]:
 @pytest.fixture
 def sample_indices(
     sample_sources: dict[str, DocSource],
-) -> dict[str, DocsIndex | GitBookIndex]:
-    """One empty index per sample source, keyed by source id.
-
-    Picks the right backend based on each source's ``source_type``.
-    """
-    out: dict[str, DocsIndex | GitBookIndex] = {}
-    for sid, src in sample_sources.items():
-        if src.source_type == "gitbook":
-            out[sid] = GitBookIndex(
-                repo_path=src.gitlab_project_path,
-                docs_site_url=src.docs_site_url,
-                gitlab_api="https://gitlab.cern.ch/api/v4",
-                summary_path=src.summary_path,
-                default_branch=src.default_branch,
-            )
-        else:
-            out[sid] = DocsIndex(search_index_url=src.search_index_url)
-    return out
+) -> dict[str, DocsIndex]:
+    """One empty index per sample source, keyed by source id."""
+    return {
+        sid: DocsIndex(search_index_url=src.search_index_url)
+        for sid, src in sample_sources.items()
+    }
 
 
 @pytest.fixture
@@ -144,7 +119,6 @@ def mock_ctx(
         "http": mock_http,
         "indices": sample_indices,
         "sources": sample_sources,
-        "gitlab_api": "https://gitlab.cern.ch/api/v4",
     }
     return ctx
 

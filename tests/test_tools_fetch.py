@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-from cern_mkdocs_mcp.tools.fetch import (
-    _candidate_gitbook_paths,
+from combine_mcp.config import DocSource
+from combine_mcp.tools._paper_index import PaperIndex
+from combine_mcp.tools.fetch import (
+    _build_raw_file_url,
     _candidate_source_paths,
     _extract_section,
     _make_outline,
     _rendered_url,
-    _rendered_url_gitbook,
     register,
 )
 from tests.conftest import capture_tools
@@ -36,97 +38,113 @@ Then submit the job.
 
 
 class TestCandidatePaths:
+    SITE = "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest"
+
     def test_url_with_trailing_slash(self) -> None:
         out = _candidate_source_paths(
-            "https://atlas-software.docs.cern.ch/analysis/grid/",
+            self.SITE + "/part3/runningthetool/", self.SITE,
         )
-        assert out == ["docs/analysis/grid/index.md", "docs/analysis/grid.md"]
+        assert out == [
+            "docs/part3/runningthetool/index.md",
+            "docs/part3/runningthetool.md",
+        ]
 
     def test_relative_path_with_trailing_slash(self) -> None:
-        assert _candidate_source_paths("analysis/grid/") == [
-            "docs/analysis/grid/index.md", "docs/analysis/grid.md",
+        assert _candidate_source_paths(
+            "part3/runningthetool/", self.SITE,
+        ) == [
+            "docs/part3/runningthetool/index.md",
+            "docs/part3/runningthetool.md",
         ]
 
     def test_relative_path_without_trailing_slash(self) -> None:
-        assert _candidate_source_paths("analysis/grid") == [
-            "docs/analysis/grid/index.md", "docs/analysis/grid.md",
+        assert _candidate_source_paths(
+            "part3/runningthetool", self.SITE,
+        ) == [
+            "docs/part3/runningthetool/index.md",
+            "docs/part3/runningthetool.md",
         ]
 
     def test_md_path_passthrough(self) -> None:
-        assert _candidate_source_paths("analysis/grid.md") == [
-            "docs/analysis/grid.md",
-        ]
+        assert _candidate_source_paths(
+            "part3/runningthetool.md", self.SITE,
+        ) == ["docs/part3/runningthetool.md"]
 
     def test_strips_existing_docs_prefix(self) -> None:
-        assert _candidate_source_paths("docs/analysis/grid.md") == [
-            "docs/analysis/grid.md",
-        ]
+        assert _candidate_source_paths(
+            "docs/part3/runningthetool.md", self.SITE,
+        ) == ["docs/part3/runningthetool.md"]
 
     def test_root_url(self) -> None:
         assert _candidate_source_paths(
-            "https://atlas-software.docs.cern.ch/",
+            self.SITE + "/", self.SITE,
         ) == ["docs/index.md"]
 
+    def test_root_url_without_trailing_slash(self) -> None:
+        assert _candidate_source_paths(self.SITE, self.SITE) == ["docs/index.md"]
+
     def test_empty(self) -> None:
-        assert _candidate_source_paths("") == []
-        assert _candidate_source_paths("   ") == []
+        assert _candidate_source_paths("", self.SITE) == []
+        assert _candidate_source_paths("   ", self.SITE) == []
 
     def test_drops_fragment(self) -> None:
         assert _candidate_source_paths(
-            "https://atlas-software.docs.cern.ch/analysis/grid/#prun",
-        ) == ["docs/analysis/grid/index.md", "docs/analysis/grid.md"]
+            self.SITE + "/part3/runningthetool/#options", self.SITE,
+        ) == [
+            "docs/part3/runningthetool/index.md",
+            "docs/part3/runningthetool.md",
+        ]
 
     def test_drops_query(self) -> None:
-        assert _candidate_source_paths("analysis/grid/?foo=bar") == [
-            "docs/analysis/grid/index.md", "docs/analysis/grid.md",
+        assert _candidate_source_paths(
+            "part3/runningthetool/?foo=bar", self.SITE,
+        ) == [
+            "docs/part3/runningthetool/index.md",
+            "docs/part3/runningthetool.md",
+        ]
+
+    def test_works_without_docs_site_url_for_simple_paths(self) -> None:
+        """Relative paths don't need the site URL for stripping."""
+        assert _candidate_source_paths("part3/intro.md") == [
+            "docs/part3/intro.md",
         ]
 
 
 class TestRenderedUrl:
+    SITE = "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest"
+
     def test_index_md(self) -> None:
         assert (
-            _rendered_url(
-                "https://atlas-software.docs.cern.ch",
-                "docs/analysis/grid/index.md",
-            )
-            == "https://atlas-software.docs.cern.ch/analysis/grid/"
+            _rendered_url(self.SITE, "docs/part3/runningthetool/index.md")
+            == self.SITE + "/part3/runningthetool/"
         )
 
     def test_plain_md(self) -> None:
         assert (
-            _rendered_url(
-                "https://atlas-software.docs.cern.ch",
-                "docs/analysis/grid.md",
-            )
-            == "https://atlas-software.docs.cern.ch/analysis/grid/"
+            _rendered_url(self.SITE, "docs/part3/runningthetool.md")
+            == self.SITE + "/part3/runningthetool/"
         )
 
-    def test_root(self) -> None:
-        assert (
-            _rendered_url(
-                "https://atlas-software.docs.cern.ch", "docs/index.md",
-            )
-            == "https://atlas-software.docs.cern.ch/"
-        )
+    def test_root_index_md(self) -> None:
+        assert _rendered_url(self.SITE, "docs/index.md") == self.SITE + "/"
 
 
-class TestOutline:
-    def test_h1_h2_h3_only(self) -> None:
+class TestMakeOutline:
+    def test_extracts_levels_one_to_three(self) -> None:
         outline = _make_outline(SAMPLE_MD)
-        levels = [(o["level"], o["heading"]) for o in outline]
+        levels = {(h["level"], h["heading"]) for h in outline}
         assert (1, "Running on the grid") in levels
         assert (2, "Build") in levels
-        assert (3, "Tags") in levels
         assert (2, "Submit") in levels
+        assert (3, "Tags") in levels
 
 
 class TestExtractSection:
     def test_extracts_named_section(self) -> None:
         body = _extract_section(SAMPLE_MD, "Build")
         assert body.startswith("## Build")
-        assert "Compile your work area" in body
-        # Stops before the next H2.
-        assert "## Submit" not in body
+        assert "Compile your work area first." in body
+        assert "Then submit the job." not in body  # next H2 truncates
 
     def test_case_insensitive(self) -> None:
         body = _extract_section(SAMPLE_MD, "build")
@@ -147,14 +165,14 @@ class TestFetchTool:
         tools = capture_tools(register)
 
         result = await tools["fetch_doc"](
-            "analysis/grid/", ctx=mock_ctx,
+            "part3/runningthetool/", ctx=mock_ctx,
         )
         data = json.loads(result)
         assert data["mode"] == "markdown"
-        assert data["source"] == "atlas-sft"
+        assert data["source"] == "combine-docs"
         assert "Submit jobs with prun" in data["content"]
-        assert data["url"].endswith("/analysis/grid/")
-        assert data["source_path"] == "docs/analysis/grid/index.md"
+        assert data["url"].endswith("/part3/runningthetool/")
+        assert data["source_path"] == "docs/part3/runningthetool/index.md"
 
     async def test_unknown_source_returns_recovery(
         self,
@@ -162,11 +180,10 @@ class TestFetchTool:
     ) -> None:
         tools = capture_tools(register)
         result = await tools["fetch_doc"](
-            "analysis/grid/", source="bogus", ctx=mock_ctx,
+            "part3/runningthetool/", source="bogus", ctx=mock_ctx,
         )
         assert "Recovery steps" in result
-        assert "atlas-sft" in result
-        assert "batch" in result
+        assert "combine-docs" in result
 
     async def test_falls_through_404_to_alternate_candidate(
         self,
@@ -181,10 +198,10 @@ class TestFetchTool:
         tools = capture_tools(register)
 
         result = await tools["fetch_doc"](
-            "analysis/grid/", ctx=mock_ctx,
+            "part3/runningthetool/", ctx=mock_ctx,
         )
         data = json.loads(result)
-        assert data["source_path"] == "docs/analysis/grid.md"
+        assert data["source_path"] == "docs/part3/runningthetool.md"
         assert mock_http.get.call_count == 2
 
     async def test_outline_mode_returns_headings_only(
@@ -197,7 +214,7 @@ class TestFetchTool:
         tools = capture_tools(register)
 
         result = await tools["fetch_doc"](
-            "analysis/grid/", mode="outline", ctx=mock_ctx,
+            "part3/runningthetool/", mode="outline", ctx=mock_ctx,
         )
         data = json.loads(result)
         assert data["mode"] == "outline"
@@ -217,7 +234,7 @@ class TestFetchTool:
         tools = capture_tools(register)
 
         result = await tools["fetch_doc"](
-            "analysis/grid/", mode="sections:Build", ctx=mock_ctx,
+            "part3/runningthetool/", mode="sections:Build", ctx=mock_ctx,
         )
         data = json.loads(result)
         assert data["found"] is True
@@ -234,7 +251,7 @@ class TestFetchTool:
         tools = capture_tools(register)
 
         result = await tools["fetch_doc"](
-            "analysis/grid/", mode="sections:Nonexistent", ctx=mock_ctx,
+            "part3/runningthetool/", mode="sections:Nonexistent", ctx=mock_ctx,
         )
         data = json.loads(result)
         assert data["found"] is False
@@ -264,7 +281,42 @@ class TestFetchTool:
         assert "Could not derive" in result
         assert "Recovery steps" in result
 
-    async def test_constructs_correct_gitlab_api_url_for_default_source(
+
+class TestBuildRawFileUrl:
+    """Unit tests for the github URL-builder helper."""
+
+    def _src(self) -> DocSource:
+        return DocSource(
+            id="combine-docs",
+            name="CMS Combine",
+            search_index_url=(
+                "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit"
+                "/latest/search/search_index.json"
+            ),
+            repo_url=(
+                "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit"
+            ),
+            docs_site_url=(
+                "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest"
+            ),
+            vcs_provider="github",
+            default_branch="main",
+        )
+
+    def test_github_raw_url_shape(self) -> None:
+        assert _build_raw_file_url(
+            self._src(), "docs/part3/runningthetool.md",
+        ) == (
+            "https://raw.githubusercontent.com/"
+            "cms-analysis/HiggsAnalysis-CombinedLimit/main/"
+            "docs/part3/runningthetool.md"
+        )
+
+
+class TestFetchToolUrlConstruction:
+    """End-to-end: fetch_doc hits the right raw.githubusercontent URL."""
+
+    async def test_calls_github_raw_url_no_params(
         self,
         mock_ctx: MagicMock,
         mock_http: MagicMock,
@@ -274,248 +326,162 @@ class TestFetchTool:
         tools = capture_tools(register)
 
         await tools["fetch_doc"](
-            "analysis/grid.md", ctx=mock_ctx,
+            "part3/runningthetool.md", ctx=mock_ctx,
         )
         called_url = mock_http.get.call_args.args[0]
-        # gitlab_project_path derived from repo_url (path-encoded, slashes → %2F)
-        assert (
-            "/projects/atlas%2Fsoftware-docs%2Fatlas-software-docs"
-            "/repository/files/" in called_url
+        assert called_url == (
+            "https://raw.githubusercontent.com/"
+            "cms-analysis/HiggsAnalysis-CombinedLimit/main/"
+            "docs/part3/runningthetool.md"
         )
-        assert "docs%2Fanalysis%2Fgrid.md" in called_url
-        assert called_url.endswith("/raw")
-        assert mock_http.get.call_args.kwargs["params"] == {"ref": "main"}
+        # GitHub bakes the ref into the URL path, so no query params.
+        assert mock_http.get.call_args.kwargs == {}
 
-    async def test_constructs_correct_gitlab_api_url_for_batch_source(
+    async def test_routes_to_correct_source(
         self,
         mock_ctx: MagicMock,
         mock_http: MagicMock,
         make_response: Any,
     ) -> None:
+        """source='synthetic' should hit example/test-docs, not Combine."""
         mock_http.get.return_value = make_response(text=SAMPLE_MD)
         tools = capture_tools(register)
 
         await tools["fetch_doc"](
-            "tutorial/intro.md", source="batch", ctx=mock_ctx,
+            "intro.md", source="synthetic", ctx=mock_ctx,
         )
         called_url = mock_http.get.call_args.args[0]
-        # gitlab_project_path for batch/batchdocs → batch%2Fbatchdocs
-        assert "/projects/batch%2Fbatchdocs/repository/files/" in called_url
-        assert "docs%2Ftutorial%2Fintro.md" in called_url
+        assert called_url == (
+            "https://raw.githubusercontent.com/example/test-docs/main/docs/intro.md"
+        )
 
-    async def test_rendered_url_uses_source_specific_docs_site(
+
+# ---------------------------------------------------------------------------
+# fetch_doc against a local-paper source
+# ---------------------------------------------------------------------------
+
+_TINY_PAPER = """\
+Preamble paragraph that introduces the paper. It must be long enough to
+survive the minimum-section-size filter, so here is a second sentence
+to comfortably cross the threshold.
+
+The statistical model
+
+The primary task of Combine is to produce a statistical model that
+encodes the probability density of the data parameterized by the model
+parameters. The parameters are split into parameters of interest and
+nuisance parameters.
+
+4.1
+
+Counting analyses
+
+A counting analysis has only one primary observable, namely the total
+event count in a single channel. The primary observable is the integer
+count of events selected by the analysis.
+"""
+
+
+class TestFetchToolOnLocalPaperSource:
+    """End-to-end: fetch_doc routes local-paper through PaperIndex."""
+
+    def _make_paper_ctx(
         self,
-        mock_ctx: MagicMock,
         mock_http: MagicMock,
-        make_response: Any,
+        tmp_path: Path,
+    ) -> MagicMock:
+        paper_file = tmp_path / "paper.txt"
+        paper_file.write_text(_TINY_PAPER, encoding="utf-8")
+        src = DocSource(
+            id="combine-paper",
+            name="CMS Combine — Paper",
+            repo_url="https://arxiv.org/abs/2404.06614",
+            docs_site_url="https://arxiv.org/abs/2404.06614v2",
+            source_type="local-paper",
+            local_path=str(paper_file),
+        )
+        sources = {"combine-paper": src}
+        indices = {
+            "combine-paper": PaperIndex(
+                local_path=paper_file,
+                docs_site_url=src.docs_site_url,
+            ),
+        }
+        ctx: MagicMock = MagicMock()
+        ctx.request_context.lifespan_context = {
+            "http": mock_http,
+            "indices": indices,
+            "sources": sources,
+        }
+        return ctx
+
+    async def test_fetch_paper_section_by_id(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
     ) -> None:
-        mock_http.get.return_value = make_response(text=SAMPLE_MD)
+        ctx = self._make_paper_ctx(mock_http, tmp_path)
         tools = capture_tools(register)
 
         result = await tools["fetch_doc"](
-            "tutorial/intro/", source="batch", ctx=mock_ctx,
+            "the-statistical-model", source="combine-paper", ctx=ctx,
         )
         data = json.loads(result)
-        assert data["source"] == "batch"
-        assert data["url"] == "https://batchdocs.web.cern.ch/tutorial/intro/"
+        assert data["source"] == "combine-paper"
+        assert data["source_path"] == "the-statistical-model"
+        assert data["url"].endswith("#sec-the-statistical-model")
+        assert "primary task of Combine" in data["content"]
+        # Critically, the paper backend does NOT hit the HTTP client.
+        mock_http.get.assert_not_called()
 
-    async def test_missing_auth_returns_recovery(
+    async def test_fetch_paper_section_by_url(
         self,
-        mock_ctx: MagicMock,
+        mock_http: MagicMock,
+        tmp_path: Path,
     ) -> None:
-        """Auth-gated source without env var set returns a Recovery Guide."""
+        ctx = self._make_paper_ctx(mock_http, tmp_path)
         tools = capture_tools(register)
 
         result = await tools["fetch_doc"](
-            "analysis/grid/", source="atlas-computing", ctx=mock_ctx,
+            "https://arxiv.org/abs/2404.06614v2#sec-4-1",
+            source="combine-paper",
+            ctx=ctx,
+        )
+        data = json.loads(result)
+        assert data["source_path"] == "4-1"
+        assert data["title"] if "title" in data else True  # mode=markdown shape
+        assert "counting analysis" in data["content"].lower()
+
+    async def test_fetch_paper_outline_mode(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_paper_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+
+        result = await tools["fetch_doc"](
+            "4-1", source="combine-paper", mode="outline", ctx=ctx,
+        )
+        data = json.loads(result)
+        # The outline of a plain-text section just sees a single heading
+        # line at the top of the body ("4.1 Counting analyses"), which
+        # _make_outline won't pick up because there's no '#' marker. The
+        # interesting behaviour: mode is respected, not an error.
+        assert data["mode"] == "outline"
+        assert "outline" in data
+
+    async def test_unknown_section_returns_recovery(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_paper_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+
+        result = await tools["fetch_doc"](
+            "nonexistent-section", source="combine-paper", ctx=ctx,
         )
         assert "Recovery steps" in result
-        assert "DOCS_MCP_CERN_SSO_TOKEN" in result
-
-    async def test_present_auth_passes_bearer_header(
-        self,
-        mock_ctx: MagicMock,
-        mock_http: MagicMock,
-        make_response: Any,
-        monkeypatch: Any,
-    ) -> None:
-        """When the env var is set the Bearer token is forwarded to GitLab."""
-        monkeypatch.setenv("DOCS_MCP_CERN_SSO_TOKEN", "test-sso-token")
-        mock_http.get.return_value = make_response(text=SAMPLE_MD)
-        tools = capture_tools(register)
-
-        await tools["fetch_doc"](
-            "analysis/grid/", source="atlas-computing", ctx=mock_ctx,
-        )
-        called_headers = mock_http.get.call_args.kwargs.get("headers") or {}
-        assert called_headers.get("Authorization") == "Bearer test-sso-token"
-
-    async def test_public_source_sends_no_auth_header(
-        self,
-        mock_ctx: MagicMock,
-        mock_http: MagicMock,
-        make_response: Any,
-    ) -> None:
-        """Public sources must not send an Authorization header."""
-        mock_http.get.return_value = make_response(text=SAMPLE_MD)
-        tools = capture_tools(register)
-
-        await tools["fetch_doc"](
-            "analysis/grid/", source="atlas-sft", ctx=mock_ctx,
-        )
-        # headers kwarg is either absent, None, or an empty dict
-        called_headers = mock_http.get.call_args.kwargs.get("headers")
-        assert not called_headers  # None or {}
-
-
-class TestGitBookCandidatePaths:
-    SITE = "https://fts3-docs.web.cern.ch/fts3-docs"
-
-    def test_root_url(self) -> None:
-        assert _candidate_gitbook_paths(self.SITE + "/", self.SITE) == ["README.md"]
-        assert _candidate_gitbook_paths(self.SITE, self.SITE) == ["README.md"]
-
-    def test_index_html_at_root(self) -> None:
-        assert _candidate_gitbook_paths(
-            self.SITE + "/index.html", self.SITE,
-        ) == ["README.md"]
-
-    def test_rendered_url_with_base_path(self) -> None:
-        assert _candidate_gitbook_paths(
-            self.SITE + "/docs/overview.html", self.SITE,
-        ) == ["docs/overview.md"]
-
-    def test_relative_html_path(self) -> None:
-        assert _candidate_gitbook_paths(
-            "docs/overview.html", self.SITE,
-        ) == ["docs/overview.md"]
-
-    def test_relative_md_path_passthrough(self) -> None:
-        assert _candidate_gitbook_paths(
-            "docs/overview.md", self.SITE,
-        ) == ["docs/overview.md"]
-
-    def test_nested_index_html_maps_to_readme(self) -> None:
-        assert _candidate_gitbook_paths(
-            self.SITE + "/docs/install/index.html", self.SITE,
-        ) == ["docs/install/README.md"]
-
-    def test_directory_form_maps_to_readme(self) -> None:
-        assert _candidate_gitbook_paths(
-            "docs/install/", self.SITE,
-        ) == ["docs/install/README.md"]
-
-    def test_drops_fragment_and_query(self) -> None:
-        assert _candidate_gitbook_paths(
-            self.SITE + "/docs/overview.html#features?x=1", self.SITE,
-        ) == ["docs/overview.md"]
-
-    def test_empty_returns_nothing(self) -> None:
-        assert _candidate_gitbook_paths("", self.SITE) == []
-        assert _candidate_gitbook_paths("   ", self.SITE) == []
-
-
-class TestGitBookRenderedUrl:
-    SITE = "https://fts3-docs.web.cern.ch/fts3-docs"
-
-    def test_root_readme(self) -> None:
-        assert (
-            _rendered_url_gitbook(self.SITE, "README.md")
-            == self.SITE + "/index.html"
-        )
-
-    def test_nested_readme(self) -> None:
-        assert (
-            _rendered_url_gitbook(self.SITE, "docs/install/README.md")
-            == self.SITE + "/docs/install/index.html"
-        )
-
-    def test_regular_page(self) -> None:
-        assert (
-            _rendered_url_gitbook(self.SITE, "docs/overview.md")
-            == self.SITE + "/docs/overview.html"
-        )
-
-
-class TestFetchToolOnGitBookSource:
-    OVERVIEW_MD = (
-        "# Overview\n\nFTS3 is a bulk data mover.\n\n## Features\n\n"
-        "Third party copies and S3 support.\n"
-    )
-
-    async def test_fetch_gitbook_uses_master_ref(
-        self,
-        mock_ctx: MagicMock,
-        mock_http: MagicMock,
-        make_response: Any,
-    ) -> None:
-        mock_http.get.return_value = make_response(text=self.OVERVIEW_MD)
-        tools = capture_tools(register)
-        await tools["fetch_doc"](
-            "docs/overview.html", source="fts", ctx=mock_ctx,
-        )
-        assert mock_http.get.call_args.kwargs.get("params") == {"ref": "master"}
-
-    async def test_fetch_gitbook_resolves_html_to_md(
-        self,
-        mock_ctx: MagicMock,
-        mock_http: MagicMock,
-        make_response: Any,
-    ) -> None:
-        mock_http.get.return_value = make_response(text=self.OVERVIEW_MD)
-        tools = capture_tools(register)
-        result = await tools["fetch_doc"](
-            "https://fts3-docs.web.cern.ch/fts3-docs/docs/overview.html",
-            source="fts",
-            ctx=mock_ctx,
-        )
-        data = json.loads(result)
-        assert data["source"] == "fts"
-        assert data["source_path"] == "docs/overview.md"
-        assert (
-            data["url"]
-            == "https://fts3-docs.web.cern.ch/fts3-docs/docs/overview.html"
-        )
-        assert "FTS3 is a bulk data mover" in data["content"]
-
-    async def test_fetch_gitbook_root_url_maps_to_readme(
-        self,
-        mock_ctx: MagicMock,
-        mock_http: MagicMock,
-        make_response: Any,
-    ) -> None:
-        mock_http.get.return_value = make_response(text="# Intro\n")
-        tools = capture_tools(register)
-        result = await tools["fetch_doc"](
-            "https://fts3-docs.web.cern.ch/fts3-docs/",
-            source="fts",
-            ctx=mock_ctx,
-        )
-        data = json.loads(result)
-        assert data["source_path"] == "README.md"
-        # GitLab API URL path-encodes the file path; ensure README.md was tried.
-        called_url = mock_http.get.call_args.args[0]
-        assert "README.md" in called_url
-        assert (
-            "/projects/fts%2Fdocumentation/repository/files/" in called_url
-        )
-
-    async def test_fetch_gitbook_outline_mode(
-        self,
-        mock_ctx: MagicMock,
-        mock_http: MagicMock,
-        make_response: Any,
-    ) -> None:
-        mock_http.get.return_value = make_response(text=self.OVERVIEW_MD)
-        tools = capture_tools(register)
-        result = await tools["fetch_doc"](
-            "docs/overview.md",
-            source="fts",
-            mode="outline",
-            ctx=mock_ctx,
-        )
-        data = json.loads(result)
-        assert data["mode"] == "outline"
-        headings = {h["heading"] for h in data["outline"]}
-        assert "Overview" in headings
-        assert "Features" in headings
+        assert "search_docs" in result
+        assert "First 10 known section ids" in result

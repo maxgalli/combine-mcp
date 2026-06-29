@@ -1,9 +1,9 @@
-# cern-mkcern-mkdocs-mcp — Contributor Guide
+# cern-mkcombine-mcp — Contributor Guide
 
 ## Architecture
 
 ```
-LLM <--MCP/stdio|HTTP--> cern-mkcern-mkdocs-mcp serve
+LLM <--MCP/stdio|HTTP--> cern-mkcombine-mcp serve
                               |
                               +-- /search/search_index.json   (cached, BM25)
                               |     atlas-software.docs.cern.ch
@@ -35,9 +35,9 @@ The server has three backends, selected per source:
 ## Project layout
 
 ```
-src/cern_mkdocs_mcp/
+src/combine_mcp/
 ├── __init__.py             # Package version
-├── cli.py                  # argparse CLI: `cern-mkdocs-mcp serve`
+├── cli.py                  # argparse CLI: `combine-mcp serve`
 ├── config.py               # DocSource dataclass + load_sources
 ├── docs_sources.json       # Bundled default source registry
 ├── server.py               # FastMCP setup, lifespan, picks index backend per source
@@ -121,11 +121,11 @@ backend — call it before searching. It is idempotent and TTL-cached
 
 ## Adding a new tool
 
-1. Create `src/cern_mkdocs_mcp/tools/my_module.py` with a
+1. Create `src/combine_mcp/tools/my_module.py` with a
    `register(mcp)` function.
 2. Import and register in `server.py`:
    ```python
-   from cern_mkdocs_mcp.tools import my_module
+   from combine_mcp.tools import my_module
    for _module in [search, fetch, my_module]:
    ```
 3. Add tests in `tests/test_tools_my_module.py`.

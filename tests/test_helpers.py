@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from cern_mkdocs_mcp.tools._helpers import format_error
+from combine_mcp.tools._helpers import format_error
 
 
 class TestFormatError:

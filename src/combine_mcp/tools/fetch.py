@@ -1,7 +1,7 @@
 """``fetch_doc`` - retrieve one page as Markdown from a documentation source.
 
-Hits the GitLab Files Raw API for the docs source repo. Repos are public;
-no token needed.
+Hits ``raw.githubusercontent.com`` for the source repo. Sources are
+public; no auth needed.
 
 Implements the arcade.dev Progressive Detail pattern via ``mode``:
 
@@ -19,27 +19,27 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 from mcp.server.fastmcp import Context, FastMCP  # noqa: TC002
 
-from cern_mkdocs_mcp.config import (
-    MissingAuthError,
+from combine_mcp.config import (
+    DocSource,  # noqa: TC001
     format_sources_guide,
-    resolve_auth_headers,
     validate_source_id,
 )
-from cern_mkdocs_mcp.tools._helpers import format_error
+from combine_mcp.tools._helpers import format_error
+from combine_mcp.tools._paper_index import PaperIndex
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 _OUTLINE_MAX_LEVEL = 3
 
 
-def _candidate_source_paths(url_or_path: str) -> list[str]:
+def _candidate_source_paths(
+    url_or_path: str,
+    docs_site_url: str = "",
+) -> list[str]:
     """Map a docs URL or relative path to candidate ``docs/...`` paths.
-
-    MkDocs convention only. For GitBook sources see
-    :func:`_candidate_gitbook_paths`.
 
     Handles three input shapes:
     - Rendered URL: ``https://example.docs.cern.ch/analysis/grid/``
@@ -49,12 +49,25 @@ def _candidate_source_paths(url_or_path: str) -> list[str]:
     For directory-style inputs ``foo/bar/`` we return both ``foo/bar/index.md``
     (the MkDocs convention) and ``foo/bar.md`` (the alternative MkDocs
     convention). The tool tries them in order and falls through 404s.
+
+    When ``docs_site_url`` has a base path (e.g. the Combine docs live at
+    ``…/HiggsAnalysis-CombinedLimit/latest/``), that prefix is stripped
+    from rendered-URL inputs so the candidate paths don't end up
+    polluted with the site's base path.
     """
     raw = url_or_path.strip()
     if not raw:
         return []
     parsed = urlparse(raw)
-    path = parsed.path if parsed.scheme else raw
+    if parsed.scheme:
+        path = parsed.path
+        site_base = urlparse(docs_site_url).path.rstrip("/") if docs_site_url else ""
+        if site_base and path.startswith(site_base + "/"):
+            path = path[len(site_base):]
+        elif site_base and path == site_base:
+            path = ""
+    else:
+        path = raw
     path = path.split("#", 1)[0].split("?", 1)[0]
     path = path.strip("/")
     if path.startswith("docs/"):
@@ -64,56 +77,6 @@ def _candidate_source_paths(url_or_path: str) -> list[str]:
     if path.endswith(".md"):
         return [f"docs/{path}"]
     return [f"docs/{path}/index.md", f"docs/{path}.md"]
-
-
-def _candidate_gitbook_paths(
-    url_or_path: str,
-    docs_site_url: str,
-) -> list[str]:
-    """Map a GitBook URL or path to candidate source ``.md`` paths.
-
-    GitBook output is 1-to-1 with source: ``foo/bar.md`` renders as
-    ``foo/bar.html``; ``README.md`` at any level renders as
-    ``index.html`` for that directory.
-
-    Handles three input shapes:
-    - Rendered URL: ``https://fts3-docs.web.cern.ch/fts3-docs/docs/overview.html``
-    - Relative path: ``docs/overview.html`` or ``docs/overview.md``
-    - Repo-root README: ``index.html``, empty string, or just the site URL
-    """
-    raw = url_or_path.strip()
-    if not raw:
-        return []
-    parsed = urlparse(raw)
-    if parsed.scheme:
-        path = parsed.path
-    else:
-        path = raw
-    path = path.split("#", 1)[0].split("?", 1)[0]
-
-    # If the URL had a scheme, strip any GitBook docs_site_url base path
-    # (e.g. "/fts3-docs/") so we're left with the doc-relative portion.
-    if parsed.scheme:
-        site_base = urlparse(docs_site_url).path.rstrip("/")
-        if site_base and path.startswith(site_base + "/"):
-            path = path[len(site_base):]
-        elif site_base and path == site_base:
-            path = ""
-
-    path = path.strip("/")
-    if not path or path == "index.html":
-        return ["README.md"]
-    if path.endswith("/index.html"):
-        inner = path[: -len("/index.html")]
-        return [f"{inner}/README.md"]
-    if path.endswith(".html"):
-        return [path[: -len(".html")] + ".md"]
-    if path.endswith(".md"):
-        return [path]
-    # Bare directory like "docs/install/" — GitBook directories don't
-    # render to .html, so the most likely meaning is the README in that
-    # directory.
-    return [f"{path}/README.md"]
 
 
 def _make_outline(markdown: str) -> list[dict[str, Any]]:
@@ -177,17 +140,72 @@ def _rendered_url(docs_base: str, source_path: str) -> str:
     return f"{base}/{inner}/"
 
 
-def _rendered_url_gitbook(docs_base: str, source_path: str) -> str:
-    """Map a GitBook ``.md`` source path back to its rendered URL."""
-    base = docs_base.rstrip("/")
-    if source_path == "README.md":
-        return f"{base}/index.html"
-    if source_path.endswith("/README.md"):
-        inner = source_path[: -len("README.md")] + "index.html"
-        return f"{base}/{inner}"
-    if source_path.endswith(".md"):
-        return f"{base}/{source_path[: -len('.md')]}.html"
-    return f"{base}/{source_path}"
+async def _fetch_paper_section(
+    url_or_path: str,
+    mode: str,
+    source_norm: str,
+    index: PaperIndex | None,
+    http: Any,
+) -> str:
+    """Look up one section in a :class:`PaperIndex` and project it.
+
+    ``url_or_path`` accepts either a section id (``"4-2-1"``,
+    ``"the-statistical-model"``) or a URL produced by ``search_docs``
+    (``"...#sec-4-2-1"``). The mode machinery (``markdown``/``outline``
+    /``sections:<heading>``) reuses the existing helpers.
+    """
+    if index is None or not isinstance(index, PaperIndex):
+        return format_error(
+            RuntimeError(f"Source {source_norm!r} has no PaperIndex bound"),
+            recovery=["This is an internal error. Please report it."],
+        )
+    try:
+        await index.ensure_fresh(http)
+    except Exception as exc:  # noqa: BLE001
+        return format_error(exc, recovery=[
+            f"The local source backing '{source_norm}' could not be loaded.",
+            "Verify the file exists at the configured local_path.",
+        ])
+
+    section = index.get_section(url_or_path)
+    if section is None:
+        available = ", ".join(
+            f"'{s['id']}'" for s in index.sections[:10]
+        )
+        return format_error(
+            ValueError(f"No section matched {url_or_path!r}"),
+            recovery=[
+                "Pass either a section id (e.g. '4-2-1') or a URL with a "
+                "'#sec-<id>' anchor as returned by search_docs.",
+                f"First 10 known section ids: {available}",
+                "Use search_docs(query=..., source=...) to find a valid "
+                "section id first.",
+            ],
+        )
+
+    projection = _project(section["body"], mode)
+    return json.dumps(
+        {
+            "source": source_norm,
+            "source_path": section["id"],
+            "url": section["url"],
+            **projection,
+        },
+        default=str,
+    )
+
+
+def _build_raw_file_url(src: DocSource, path: str) -> str:
+    """Return the URL for fetching a raw file from the source repo.
+
+    Currently only GitHub is supported (the only ``vcs_provider`` value
+    accepted at config-load time). Future providers branch here.
+    """
+    owner_repo = src.gitlab_project_path  # vcs-neutral parse
+    return (
+        f"https://raw.githubusercontent.com/{owner_repo}/"
+        f"{src.default_branch}/{path}"
+    )
 
 
 def register(mcp: FastMCP) -> None:
@@ -196,16 +214,12 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool()
     async def fetch_doc(
         url_or_path: str,
-        source: str = "atlas-sft",
+        source: str = "combine-docs",
         mode: str = "markdown",
         *,
         ctx: Context[Any, Any],
     ) -> str:
         """Fetch one documentation page as Markdown from upstream VCS.
-
-        Public sources need no credentials. Auth-gated sources (e.g.
-        ``atlas-computing``, ``atlas-databases``) require the appropriate
-        environment variable to be set (see ``docs://sources``).
 
         Tries both ``docs/<path>/index.md`` and ``docs/<path>.md`` for
         directory-style inputs (MkDocs admits both). Falls through 404s.
@@ -213,29 +227,26 @@ def register(mcp: FastMCP) -> None:
         Args:
             url_or_path: Any of:
                 - A rendered URL, e.g.
-                  ``https://atlas-software.docs.cern.ch/analysis/grid/``
-                - A relative path, e.g. ``analysis/grid/``
-                - A direct ``.md`` source path, e.g. ``analysis/grid.md``
-            source: Documentation source ID. One of:
-                ``atlas-sft``, ``atlas-computing``, ``atlas-databases``,
-                ``batch``, ``cloud``, ``ml``, ``swan``, ``fts``.
-                Default: ``atlas-sft`` (ATLAS Software).
+                  ``https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/part3/runningthetool/``
+                - A relative path, e.g. ``part3/runningthetool/``
+                - A direct ``.md`` source path, e.g.
+                  ``part3/runningthetool.md``
+            source: Documentation source ID. Default: ``combine-docs``.
             mode: Output projection.
                 - ``"markdown"`` (default): full body.
                 - ``"outline"``: list of H1-H3 headings only - cheap way
                   to scout a long page.
                 - ``"sections:<heading>"``: extract one section starting
                   from a matching heading (case-insensitive). E.g.
-                  ``"sections:Build"``.
+                  ``"sections:Common options"``.
         """
-        source_norm = source.strip().lower() if source else "atlas-sft"
+        source_norm = source.strip().lower() if source else "combine-docs"
 
         ctxd = ctx.request_context.lifespan_context
         http = ctxd["http"]
-        gitlab_api: str = ctxd["gitlab_api"]
         sources_registry = ctxd["sources"]
+        indices = ctxd["indices"]
 
-        # Validate source ID
         try:
             validate_source_id(source_norm, sources_registry)
         except ValueError as e:
@@ -245,50 +256,34 @@ def register(mcp: FastMCP) -> None:
 
         source_obj = sources_registry[source_norm]
 
-        if source_obj.source_type == "gitbook":
-            candidates = _candidate_gitbook_paths(
-                url_or_path, source_obj.docs_site_url,
+        # Local-paper sources read from an in-memory PaperIndex; no HTTP.
+        if source_obj.source_type == "local-paper":
+            return await _fetch_paper_section(
+                url_or_path=url_or_path,
+                mode=mode,
+                source_norm=source_norm,
+                index=indices.get(source_norm),
+                http=http,
             )
-            render_url = _rendered_url_gitbook
-        else:
-            candidates = _candidate_source_paths(url_or_path)
-            render_url = _rendered_url
 
+        candidates = _candidate_source_paths(
+            url_or_path, source_obj.docs_site_url,
+        )
         if not candidates:
             return format_error(
                 ValueError(f"Could not derive a source path from {url_or_path!r}"),
                 recovery=[
-                    "Pass a URL like https://example.docs.cern.ch/<path>/",
-                    "or a relative path like 'athena/configuration/'.",
+                    "Pass a URL like https://<docs-site>/<path>/",
+                    "or a relative path like 'part3/runningthetool/'.",
                     "Use search_docs(query=..., source=...) to find a valid URL first.",
                 ],
             )
 
-        try:
-            auth_headers = resolve_auth_headers(source_obj)
-        except MissingAuthError as exc:
-            return format_error(exc, recovery=[
-                f"Set the environment variable ${exc.env_var} to a valid "
-                "CERN SSO token before fetching from this source.",
-                "Public sources (no auth required): "
-                + ", ".join(
-                    s.id for s in sources_registry.values() if s.auth is None
-                ),
-            ])
-
-        project_path = quote(source_obj.gitlab_project_path, safe="")
         last_error: Exception | None = None
         for path in candidates:
-            api_url = (
-                f"{gitlab_api.rstrip('/')}/projects/{project_path}/"
-                f"repository/files/{quote(path, safe='')}/raw"
-            )
+            api_url = _build_raw_file_url(source_obj, path)
             try:
-                response = await http.get(
-                    api_url,
-                    params={"ref": source_obj.default_branch},
-                    headers=auth_headers or None,
-                )
+                response = await http.get(api_url)
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
                 continue
@@ -306,7 +301,7 @@ def register(mcp: FastMCP) -> None:
                 {
                     "source": source_norm,
                     "source_path": path,
-                    "url": render_url(source_obj.docs_site_url, path),
+                    "url": _rendered_url(source_obj.docs_site_url, path),
                     **projection,
                 },
                 default=str,

@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from cern_mkdocs_mcp.config import DocSource
-from cern_mkdocs_mcp.resources import register
+from combine_mcp.config import DocSource
+from combine_mcp.resources import register
 
 
 def _capture_resource(mcp: MagicMock) -> list[dict[str, Any]]:
@@ -36,25 +36,28 @@ def _capture_resource(mcp: MagicMock) -> list[dict[str, Any]]:
 
 
 SAMPLE_SOURCES: dict[str, DocSource] = {
-    "atlas-sft": DocSource(
-        id="atlas-sft",
-        name="ATLAS Software",
+    "combine-docs": DocSource(
+        id="combine-docs",
+        name="CMS Combine",
         search_index_url=(
-            "https://atlas-software.docs.cern.ch/search/search_index.json"
+            "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit"
+            "/latest/search/search_index.json"
         ),
         repo_url=(
-            "https://gitlab.cern.ch/atlas/software-docs/atlas-software-docs"
+            "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit"
         ),
-        docs_site_url="https://atlas-software.docs.cern.ch",
+        docs_site_url=(
+            "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest"
+        ),
+        vcs_provider="github",
     ),
-    "batch": DocSource(
-        id="batch",
-        name="HTCondor Batch",
-        search_index_url=(
-            "https://batchdocs.web.cern.ch/search/search_index.json"
-        ),
-        repo_url="https://gitlab.cern.ch/batch/batchdocs",
-        docs_site_url="https://batchdocs.web.cern.ch",
+    "synthetic": DocSource(
+        id="synthetic",
+        name="Synthetic Test Source",
+        search_index_url="https://example.test/search/search_index.json",
+        repo_url="https://github.com/example/test-docs",
+        docs_site_url="https://example.test",
+        vcs_provider="github",
     ),
 }
 
@@ -72,13 +75,13 @@ class TestRegister:
 
         body = entry["func"]()
         # Lists every registered source by id and name.
-        assert "atlas-sft" in body
-        assert "ATLAS Software" in body
-        assert "batch" in body
-        assert "HTCondor Batch" in body
+        assert "combine-docs" in body
+        assert "CMS Combine" in body
+        assert "synthetic" in body
+        assert "Synthetic Test Source" in body
         # Includes URLs (Resource Reference pattern - point, don't embed).
-        assert "https://atlas-software.docs.cern.ch" in body
-        assert "https://batchdocs.web.cern.ch" in body
+        assert "cms-analysis.github.io" in body
+        assert "https://example.test" in body
 
     def test_handles_empty_registry(self) -> None:
         mcp = MagicMock()

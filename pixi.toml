@@ -1,15 +1,15 @@
 [workspace]
 authors = ["Giovanni Guerrieri <giorgio.ravelli66@gmail.com>"]
-name = "cern-mkdocs-mcp"
+name = "combine-mcp"
 channels = ["conda-forge"]
 platforms = ["linux-64", "linux-aarch64", "osx-64", "osx-arm64", "win-64"]
 preview = ["pixi-build"]
 
 [dependencies]
-cern-mkdocs-mcp = { path = "./" }
+combine-mcp = { path = "./" }
 
 [package]
-name = "cern-mkdocs-mcp"
+name = "combine-mcp"
 version = "latest"
 
 [package.build]
@@ -47,9 +47,9 @@ pytest-asyncio = ">=0.24"
 
 [feature.test.tasks]
 test = { cmd = "pytest -m 'not slow'", description = "Run quick tests (skip slow)" }
-test-cov = { cmd = "pytest -m 'not slow' --cov=cern_mkdocs_mcp --cov-report=term --cov-report=html", description = "Run quick tests with coverage" }
+test-cov = { cmd = "pytest -m 'not slow' --cov=combine_mcp --cov-report=term --cov-report=html", description = "Run quick tests with coverage" }
 test-slow = { cmd = "pytest --runslow", description = "Run tests including slow tests" }
-test-all = { cmd = "pytest --cov=cern_mkdocs_mcp", description = "Run all tests with coverage" }
+test-all = { cmd = "pytest --cov=combine_mcp", description = "Run all tests with coverage" }
 
 [feature.dev.dependencies]
 pre-commit = "*"
@@ -61,7 +61,7 @@ python-build = "*"
 
 [feature.dev.tasks]
 pre-commit = { cmd = "pre-commit run --all-files", description = "Run pre-commit hooks on all files" }
-pylint = { cmd = "pylint cern_mkdocs_mcp", description = "Run PyLint" }
+pylint = { cmd = "pylint combine_mcp", description = "Run PyLint" }
 pre-commit-install = { cmd = "pre-commit install", description = "Install pre-commit git hooks" }
 pre-commit-update = { cmd = "pre-commit autoupdate", description = "Update pre-commit hook versions" }
 build-clean = { cmd = "rm -rf build dist", description = "Clean build artifacts" }

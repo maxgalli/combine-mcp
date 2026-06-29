@@ -1,0 +1,22 @@
+{
+  "sources": [
+    {
+      "id": "combine-docs",
+      "name": "CMS Combine (HiggsAnalysis-CombinedLimit)",
+      "search_index_url": "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/search/search_index.json",
+      "repo_url": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit",
+      "docs_site_url": "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest",
+      "vcs_provider": "github",
+      "default_branch": "main"
+    },
+    {
+      "id": "combine-paper",
+      "name": "CMS Combine — Paper (arXiv:2404.06614v2)",
+      "source_type": "local-paper",
+      "repo_url": "https://arxiv.org/abs/2404.06614",
+      "docs_site_url": "https://arxiv.org/abs/2404.06614v2",
+      "local_path": "../../corpora/paper_clean.txt"
+    }
+  ]
+}
+

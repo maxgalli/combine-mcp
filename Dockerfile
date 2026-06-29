@@ -10,4 +10,4 @@ RUN pip install --no-cache-dir .
 EXPOSE 8000
 
 # Run the MCP server over streamable HTTP
-CMD ["cern-mkdocs-mcp", "serve", "--transport", "streamable-http", "--port", "8000"]
+CMD ["combine-mcp", "serve", "--transport", "streamable-http", "--port", "8000"]
