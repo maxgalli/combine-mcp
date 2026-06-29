@@ -84,16 +84,32 @@ class DocSource:
     ``local-*`` source types."""
 
     local_path: str | None = None
-    """Path to a local data file. Required for source types that read
-    from disk (e.g. ``local-paper``).
+    """Path to a single local data file. Required for ``local-paper``.
 
     Resolution:
     - Absolute paths are stored as-is.
     - Relative paths in a JSON config are resolved against the config
       file's directory (see :func:`load_sources`). The bundled
-      ``docs_sources.json`` ships with a relative path so the MCP repo
-      is self-contained.
-    - Deployments can override either way via ``--config /path/to/your.json``."""
+      ``docs_sources.json`` ships relative paths so the MCP repo is
+      self-contained."""
+
+    local_root: str | None = None
+    """Path to a local directory tree. Required for ``local-files``
+    (e.g. the Combine source submodule). Same relative-path resolution
+    as :attr:`local_path`."""
+
+    include_globs: tuple[str, ...] = ()
+    """For ``local-files``, the glob patterns (relative to
+    :attr:`local_root`) selecting which files become documents. The
+    same file matched by multiple patterns is indexed once."""
+
+    url_template: str | None = None
+    """For ``local-files``, a template used to build per-file citation
+    URLs. ``{relpath}`` is substituted with each file's POSIX path
+    relative to :attr:`local_root`. Example::
+
+        "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/blob/v10.6.0/{relpath}"
+    """
 
     @property
     def gitlab_project_path(self) -> str:
@@ -187,11 +203,11 @@ def load_sources(config_path: str | Path) -> dict[str, DocSource]:
     for item in data.get("sources", []):
         try:
             source_type = item.get("source_type", "mkdocs")
-            if source_type not in ("mkdocs", "local-paper"):
+            if source_type not in ("mkdocs", "local-paper", "local-files"):
                 msg = (
                     f"source {item.get('id')!r}: source_type "
                     f"{source_type!r} not supported "
-                    "(currently 'mkdocs' or 'local-paper')"
+                    "(currently 'mkdocs', 'local-paper', or 'local-files')"
                 )
                 raise ValueError(msg)
             if source_type == "mkdocs" and not item.get("search_index_url"):
@@ -206,6 +222,19 @@ def load_sources(config_path: str | Path) -> dict[str, DocSource]:
                     "requires local_path"
                 )
                 raise ValueError(msg)
+            if source_type == "local-files":
+                if not item.get("local_root"):
+                    msg = (
+                        f"source {item.get('id')!r}: source_type='local-files' "
+                        "requires local_root"
+                    )
+                    raise ValueError(msg)
+                if not item.get("include_globs"):
+                    msg = (
+                        f"source {item.get('id')!r}: source_type='local-files' "
+                        "requires include_globs"
+                    )
+                    raise ValueError(msg)
             vcs_provider = item.get("vcs_provider", "github")
             if vcs_provider != "github":
                 msg = (
@@ -225,6 +254,11 @@ def load_sources(config_path: str | Path) -> dict[str, DocSource]:
                 local_path=_resolve_local_path(
                     item.get("local_path"), config_dir,
                 ),
+                local_root=_resolve_local_path(
+                    item.get("local_root"), config_dir,
+                ),
+                include_globs=tuple(item.get("include_globs", ())),
+                url_template=item.get("url_template"),
             )
             sources[source.id] = source
         except KeyError as exc:

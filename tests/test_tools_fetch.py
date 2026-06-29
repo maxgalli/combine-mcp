@@ -485,3 +485,114 @@ class TestFetchToolOnLocalPaperSource:
         assert "Recovery steps" in result
         assert "search_docs" in result
         assert "First 10 known section ids" in result
+
+
+# ---------------------------------------------------------------------------
+# fetch_doc against a local-files source (CodeIndex)
+# ---------------------------------------------------------------------------
+
+
+_PY_BODY = """\
+class AsymptoticLimits:
+    def run(self):
+        return None
+"""
+
+
+class TestFetchToolOnLocalFilesSource:
+    """End-to-end: fetch_doc routes local-files through CodeIndex."""
+
+    def _make_code_ctx(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> MagicMock:
+        from combine_mcp.tools._code_index import CodeIndex
+
+        (tmp_path / "python").mkdir()
+        (tmp_path / "python" / "ScanModel.py").write_text(_PY_BODY)
+
+        src = DocSource(
+            id="combine-code",
+            name="CMS Combine Source",
+            repo_url="https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit",
+            docs_site_url=(
+                "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/tree/v10.6.0"
+            ),
+            source_type="local-files",
+            local_root=str(tmp_path),
+            include_globs=("python/**/*.py",),
+            url_template=(
+                "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/"
+                "blob/v10.6.0/{relpath}"
+            ),
+        )
+        sources = {"combine-code": src}
+        indices = {
+            "combine-code": CodeIndex(
+                local_root=tmp_path,
+                include_globs=("python/**/*.py",),
+                docs_site_url=src.docs_site_url,
+                url_template=src.url_template,
+            ),
+        }
+        ctx: MagicMock = MagicMock()
+        ctx.request_context.lifespan_context = {
+            "http": mock_http,
+            "indices": indices,
+            "sources": sources,
+        }
+        return ctx
+
+    async def test_fetch_code_file_by_relpath(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_code_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+
+        result = await tools["fetch_doc"](
+            "python/ScanModel.py", source="combine-code", ctx=ctx,
+        )
+        data = json.loads(result)
+        assert data["source"] == "combine-code"
+        assert data["source_path"] == "python/ScanModel.py"
+        assert data["url"].endswith("blob/v10.6.0/python/ScanModel.py")
+        assert "class AsymptoticLimits" in data["content"]
+        # Local source — no HTTP.
+        mock_http.get.assert_not_called()
+
+    async def test_fetch_code_outline_mode(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_code_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+
+        result = await tools["fetch_doc"](
+            "python/ScanModel.py",
+            source="combine-code",
+            mode="outline",
+            ctx=ctx,
+        )
+        data = json.loads(result)
+        assert data["mode"] == "outline"
+        headings = {h["heading"] for h in data["outline"]}
+        assert "AsymptoticLimits" in headings or "run" in headings
+
+    async def test_fetch_code_unknown_file_returns_recovery(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_code_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+
+        result = await tools["fetch_doc"](
+            "python/Nope.py", source="combine-code", ctx=ctx,
+        )
+        assert "Recovery steps" in result
+        assert "search_docs" in result
+        assert "First 10 indexed paths" in result

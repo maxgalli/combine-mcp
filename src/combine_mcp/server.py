@@ -19,19 +19,22 @@ from combine_mcp.config import (
 from combine_mcp.nomenclature import COMBINE_DOCS_GUIDE
 from combine_mcp.resources import register as register_resources
 from combine_mcp.tools import fetch, search
+from combine_mcp.tools._code_index import CodeIndex
 from combine_mcp.tools._index import DocsIndex
 from combine_mcp.tools._paper_index import PaperIndex
 
 
-def _build_index(src: DocSource) -> DocsIndex | PaperIndex:
+def _build_index(src: DocSource) -> DocsIndex | PaperIndex | CodeIndex:
     """Pick the right index backend for a source.
 
     - ``mkdocs`` -> :class:`DocsIndex` over the published search payload.
     - ``local-paper`` -> :class:`PaperIndex` over a single local file
       split into sections.
+    - ``local-files`` -> :class:`CodeIndex` over a directory tree, one
+      file = one BM25 document.
 
-    Both expose the same ``ensure_fresh`` / ``search`` interface so the
-    rest of the server doesn't need to branch.
+    All three expose the same ``ensure_fresh`` / ``search`` interface
+    so the rest of the server doesn't need to branch.
     """
     if src.source_type == "local-paper":
         if src.local_path is None:
@@ -40,6 +43,16 @@ def _build_index(src: DocSource) -> DocsIndex | PaperIndex:
         return PaperIndex(
             local_path=src.local_path,
             docs_site_url=src.docs_site_url,
+        )
+    if src.source_type == "local-files":
+        if src.local_root is None:
+            msg = f"source {src.id!r}: local-files requires local_root"
+            raise ValueError(msg)
+        return CodeIndex(
+            local_root=src.local_root,
+            include_globs=src.include_globs,
+            docs_site_url=src.docs_site_url,
+            url_template=src.url_template,
         )
     return DocsIndex(search_index_url=src.search_index_url)
 

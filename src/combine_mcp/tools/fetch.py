@@ -28,6 +28,7 @@ from combine_mcp.config import (
     format_sources_guide,
     validate_source_id,
 )
+from combine_mcp.tools._code_index import CodeIndex
 from combine_mcp.tools._helpers import format_error
 from combine_mcp.tools._paper_index import PaperIndex
 
@@ -195,6 +196,80 @@ async def _fetch_paper_section(
     )
 
 
+async def _fetch_code_file(
+    url_or_path: str,
+    mode: str,
+    source_norm: str,
+    index: CodeIndex | None,
+    http: Any,
+) -> str:
+    """Return one source file's contents from a :class:`CodeIndex`.
+
+    ``url_or_path`` accepts either a file's relative path within the
+    indexed tree (``"python/PhysicsModel.py"``) or a citation URL
+    produced by :meth:`CodeIndex.search` (typically a GitHub blob URL).
+
+    The mode machinery is reused: ``markdown`` returns the file
+    contents, ``outline`` returns a coarse list of top-level
+    defs/classes from the source, and ``sections:<heading>`` matches
+    Markdown-style ``#`` headers (rare in source files; provided for
+    interface uniformity).
+    """
+    if index is None or not isinstance(index, CodeIndex):
+        return format_error(
+            RuntimeError(f"Source {source_norm!r} has no CodeIndex bound"),
+            recovery=["This is an internal error. Please report it."],
+        )
+    try:
+        await index.ensure_fresh(http)
+    except Exception as exc:  # noqa: BLE001
+        return format_error(exc, recovery=[
+            f"The local source backing '{source_norm}' could not be loaded.",
+            "Verify the local_root directory exists and contains files "
+            "matching include_globs.",
+        ])
+
+    doc = index.get_file(url_or_path)
+    if doc is None:
+        sample = ", ".join(f"'{d['relpath']}'" for d in index.docs[:10])
+        return format_error(
+            ValueError(f"No file matched {url_or_path!r}"),
+            recovery=[
+                "Pass either a relative path (e.g. 'python/PhysicsModel.py') "
+                "or a URL produced by search_docs on this source.",
+                f"First 10 indexed paths: {sample}",
+                "Use search_docs(query=..., source=...) to find a valid "
+                "file first.",
+            ],
+        )
+
+    # Code files don't carry markdown headers, but the mode-projection
+    # API is uniform across sources. _project handles all three modes
+    # gracefully: outline returns an empty list for source files with
+    # no '#' headers, which is honest.
+    if mode == "outline":
+        from combine_mcp.tools._code_index import _outline_of
+        projection = {
+            "mode": "outline",
+            "outline": [
+                {"level": 1, "heading": name}
+                for name in _outline_of(doc["body"])
+            ],
+        }
+    else:
+        projection = _project(doc["body"], mode)
+
+    return json.dumps(
+        {
+            "source": source_norm,
+            "source_path": doc["relpath"],
+            "url": doc["url"],
+            **projection,
+        },
+        default=str,
+    )
+
+
 def _build_raw_file_url(src: DocSource, path: str) -> str:
     """Return the URL for fetching a raw file from the source repo.
 
@@ -259,6 +334,17 @@ def register(mcp: FastMCP) -> None:
         # Local-paper sources read from an in-memory PaperIndex; no HTTP.
         if source_obj.source_type == "local-paper":
             return await _fetch_paper_section(
+                url_or_path=url_or_path,
+                mode=mode,
+                source_norm=source_norm,
+                index=indices.get(source_norm),
+                http=http,
+            )
+
+        # Local-files sources read each file's body from disk via the
+        # CodeIndex; no HTTP either.
+        if source_obj.source_type == "local-files":
+            return await _fetch_code_file(
                 url_or_path=url_or_path,
                 mode=mode,
                 source_norm=source_norm,

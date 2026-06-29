@@ -196,3 +196,69 @@ class TestLocalPathResolution:
         assert local_path is not None
         assert _P(local_path).is_file()
         assert _P(local_path).name == "paper_clean.txt"
+
+
+class TestLocalFilesSource:
+    def test_local_files_loads(self, tmp_path: pytest.TempPathFactory) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"c","name":"C",'
+            '"repo_url":"https://github.com/x/y",'
+            '"docs_site_url":"https://github.com/x/y","source_type":"local-files",'
+            '"local_root":"/tmp/code","include_globs":["**/*.py"],'
+            '"url_template":"https://github.com/x/y/blob/main/{relpath}"}]}'
+        )
+        sources = load_sources(p)
+        s = sources["c"]
+        assert s.source_type == "local-files"
+        assert s.local_root == "/tmp/code"
+        assert s.include_globs == ("**/*.py",)
+        assert s.url_template == "https://github.com/x/y/blob/main/{relpath}"
+
+    def test_local_files_requires_local_root(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"c","name":"C",'
+            '"repo_url":"https://github.com/x/y",'
+            '"docs_site_url":"https://github.com/x/y","source_type":"local-files",'
+            '"include_globs":["**/*.py"]}]}'
+        )
+        with pytest.raises(ValueError, match="local_root"):
+            load_sources(p)
+
+    def test_local_files_requires_include_globs(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"c","name":"C",'
+            '"repo_url":"https://github.com/x/y",'
+            '"docs_site_url":"https://github.com/x/y","source_type":"local-files",'
+            '"local_root":"/tmp/code"}]}'
+        )
+        with pytest.raises(ValueError, match="include_globs"):
+            load_sources(p)
+
+
+class TestBundledCombineCodeSource:
+    """The bundled docs_sources.json should register combine-code."""
+
+    def test_combine_code_registered(self) -> None:
+        sources = get_default_sources()
+        assert "combine-code" in sources
+
+    def test_combine_code_points_at_submodule(self) -> None:
+        from pathlib import Path as _P
+        src = get_default_sources()["combine-code"]
+        assert src.source_type == "local-files"
+        assert src.local_root is not None
+        assert _P(src.local_root).is_dir()
+        assert src.include_globs  # non-empty
+
+    def test_combine_code_url_template_at_v10_6_0(self) -> None:
+        src = get_default_sources()["combine-code"]
+        assert src.url_template
+        assert "v10.6.0" in src.url_template
+        assert "{relpath}" in src.url_template

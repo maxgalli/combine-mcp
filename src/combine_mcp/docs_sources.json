@@ -16,7 +16,24 @@
       "repo_url": "https://arxiv.org/abs/2404.06614",
       "docs_site_url": "https://arxiv.org/abs/2404.06614v2",
       "local_path": "../../corpora/paper_clean.txt"
+    },
+    {
+      "id": "combine-code",
+      "name": "CMS Combine — Source Code (v10.6.0)",
+      "source_type": "local-files",
+      "repo_url": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit",
+      "docs_site_url": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/tree/v10.6.0",
+      "local_root": "../../corpora/combine",
+      "include_globs": [
+        "python/**/*.py",
+        "scripts/*.py",
+        "scripts/*.sh",
+        "interface/*.h",
+        "bin/*.cpp"
+      ],
+      "url_template": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/blob/v10.6.0/{relpath}"
     }
   ]
 }
+
 
