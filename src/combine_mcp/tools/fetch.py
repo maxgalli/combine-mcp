@@ -29,6 +29,7 @@ from combine_mcp.config import (
     validate_source_id,
 )
 from combine_mcp.tools._code_index import CodeIndex
+from combine_mcp.tools._forum_index import ForumIndex, _parse_post_selector
 from combine_mcp.tools._helpers import format_error
 from combine_mcp.tools._paper_index import PaperIndex
 
@@ -270,6 +271,137 @@ async def _fetch_code_file(
     )
 
 
+async def _fetch_forum_thread(
+    url_or_path: str,
+    mode: str,
+    source_norm: str,
+    index: ForumIndex | None,
+    http: Any,
+) -> str:
+    """Return one forum thread (or one of its posts) from ``ForumIndex``.
+
+    ``url_or_path`` accepts:
+        - A bare topic id: ``"142937"``.
+        - A cms-talk URL: ``"https://cms-talk.web.cern.ch/t/142937"`` or
+          ``".../t/142937/4"`` (post anchor; ignored for thread-level mode).
+
+    Modes:
+        - ``"markdown"`` (default) — full rendered transcript.
+        - ``"outline"`` — list of posts: ``{post_number, username,
+          char_count, is_accepted_answer}``. Cheap way to scout a long
+          thread.
+        - ``"post:<N>"`` or ``"post:accepted"`` — one specific post's
+          body, with a per-post URL.
+    """
+    if index is None or not isinstance(index, ForumIndex):
+        return format_error(
+            RuntimeError(f"Source {source_norm!r} has no ForumIndex bound"),
+            recovery=["This is an internal error. Please report it."],
+        )
+    try:
+        await index.ensure_fresh(http)
+    except Exception as exc:  # noqa: BLE001
+        return format_error(exc, recovery=[
+            f"The forum corpus for '{source_norm}' could not be loaded.",
+            "Verify the local_root directory exists and contains "
+            "topic_*.json files (run `combine-mcp scrape` to populate).",
+        ])
+
+    # Outline mode — list of post summaries.
+    if mode == "outline":
+        topic = index._lookup_topic(url_or_path)  # noqa: SLF001
+        if topic is None:
+            return _forum_unknown_topic_error(url_or_path, index)
+        accepted_n = topic.get("accepted_answer_post_number")
+        posts_summary = [
+            {
+                "post_number": p.get("post_number"),
+                "username": p.get("username"),
+                "char_count": len((p.get("text") or "")),
+                "is_accepted_answer": (
+                    bool(p.get("is_accepted_answer"))
+                    or (
+                        accepted_n is not None
+                        and p.get("post_number") == accepted_n
+                    )
+                ),
+            }
+            for p in (topic.get("posts") or [])
+        ]
+        return json.dumps(
+            {
+                "source": source_norm,
+                "source_path": str(topic.get("topic_id")),
+                "url": index._topic_url(topic),  # noqa: SLF001
+                "mode": "outline",
+                "title": topic.get("title"),
+                "accepted_answer_post_number": accepted_n,
+                "posts": posts_summary,
+            },
+            default=str,
+        )
+
+    # Single-post mode: "post:1" / "post:accepted".
+    post_key = _parse_post_selector(mode)
+    if post_key is not None:
+        result = index.get_topic(url_or_path, post=post_key)
+        if result is None:
+            return format_error(
+                ValueError(
+                    f"No post matched mode={mode!r} on {url_or_path!r}",
+                ),
+                recovery=[
+                    "Use mode='outline' to list posts in the thread first.",
+                    "If you asked for 'post:accepted', the thread may not "
+                    "be marked solved.",
+                ],
+            )
+        return json.dumps(
+            {
+                "source": source_norm,
+                "source_path": str(result["post_number"]),
+                "url": result["url"],
+                "mode": mode,
+                "title": result["title"],
+                "post_number": result["post_number"],
+                "content": result["body"],
+            },
+            default=str,
+        )
+
+    # Default: full transcript.
+    result = index.get_topic(url_or_path)
+    if result is None:
+        return _forum_unknown_topic_error(url_or_path, index)
+    return json.dumps(
+        {
+            "source": source_norm,
+            "source_path": str(
+                index._lookup_topic(url_or_path).get("topic_id"),  # noqa: SLF001
+            ),
+            "url": result["url"],
+            "mode": "markdown",
+            "title": result["title"],
+            "content": result["body"],
+        },
+        default=str,
+    )
+
+
+def _forum_unknown_topic_error(url_or_path: str, index: ForumIndex) -> str:
+    sample_ids = [t.get("topic_id") for t in index.topics[:10]]
+    sample = ", ".join(repr(tid) for tid in sample_ids if tid is not None)
+    return format_error(
+        ValueError(f"No forum topic matched {url_or_path!r}"),
+        recovery=[
+            "Pass either a topic id (e.g. '142937') or a cms-talk URL.",
+            f"First 10 indexed topic ids: {sample}",
+            "Use search_docs(query=..., source=...) to find a valid "
+            "topic first.",
+        ],
+    )
+
+
 def _build_raw_file_url(src: DocSource, path: str) -> str:
     """Return the URL for fetching a raw file from the source repo.
 
@@ -345,6 +477,17 @@ def register(mcp: FastMCP) -> None:
         # CodeIndex; no HTTP either.
         if source_obj.source_type == "local-files":
             return await _fetch_code_file(
+                url_or_path=url_or_path,
+                mode=mode,
+                source_norm=source_norm,
+                index=indices.get(source_norm),
+                http=http,
+            )
+
+        # Local-forum sources render one Discourse thread (or one post)
+        # from the in-memory ForumIndex.
+        if source_obj.source_type == "local-forum":
+            return await _fetch_forum_thread(
                 url_or_path=url_or_path,
                 mode=mode,
                 source_norm=source_norm,

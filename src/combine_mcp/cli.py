@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from combine_mcp.scrape import DEFAULT_OUTPUT as SCRAPE_DEFAULT_OUTPUT
+from combine_mcp.scrape import scrape as _do_scrape
 from combine_mcp.server import serve
 
 
@@ -18,6 +20,7 @@ def main() -> None:
     )
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
 
+    # --- serve ----------------------------------------------------------
     serve_parser = subparsers.add_parser(
         "serve",
         help="Start the MCP server",
@@ -50,6 +53,28 @@ def main() -> None:
         ),
     )
 
+    # --- scrape ---------------------------------------------------------
+    scrape_parser = subparsers.add_parser(
+        "scrape",
+        help="Scrape the cms-talk Statistics category into corpora/forum/",
+    )
+    scrape_parser.add_argument(
+        "--output", type=Path, default=SCRAPE_DEFAULT_OUTPUT,
+        help=f"output directory (default: {SCRAPE_DEFAULT_OUTPUT})",
+    )
+    scrape_parser.add_argument(
+        "--full", action="store_true",
+        help="rescrape every topic, ignoring the manifest",
+    )
+    scrape_parser.add_argument(
+        "--sleep", type=float, default=0.5,
+        help="seconds between API calls (default: 0.5)",
+    )
+    scrape_parser.add_argument(
+        "--limit", type=int, default=None,
+        help="stop after N topics (debug)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "serve":
@@ -58,6 +83,13 @@ def main() -> None:
             host=args.host,
             port=args.port,
             config_path=args.config,
+        )
+    elif args.command == "scrape":
+        _do_scrape(
+            output_dir=args.output,
+            full=args.full,
+            sleep_s=args.sleep,
+            limit=args.limit,
         )
     else:
         parser.print_help()

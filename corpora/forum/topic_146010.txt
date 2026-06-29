@@ -1,0 +1,80 @@
+TOPIC: Multiple N-sigma variation for nuisances in template based analyses
+URL: https://cms-talk.web.cern.ch/t/146010
+DATE: 2026-06-15T15:02:01.307Z
+SOLVED: no
+============================================================
+
+QUESTION (by amassiro @ 2026-06-15T15:02:01.779Z):
+Dear combine experts,
+I was wondering if it’s possible for a template-based analysis to provide to combine not just the +/- 1 sigma variation as usually done, but the +/- 0.5 sigma, +/- 1 sigma, +/-2 sigma, such that a more proper prior on the expected event yield in each bin of the histograms can be defined, and the proper interpolation and extrapolation is used.
+Has this ever been performed/tried in CMS/combine?
+More details here [1].
+Best regards,
+Andrea
+[1] slide 6 of  https://indico.cern.ch/event/1677254/contributions/7145253/attachments/3294987/5892613/2026-06-15-JES-is-not-enough-Massironi.pdf
+----------------------------------------
+
+REPLY 2 (by gortona @ 2026-06-15T15:28:48.668Z):
+Ciao Andrea,
+As usual, other experts can comment and correct me. I think that as it is now, Combine would not support more than 2 variations (Up/Down).
+But I believe it should be possible to change the behaviour of the VerticalInterp class to accomodate this case. As far as I can see/remember, one should take care of modifying the interpolation algorithm here and change the protection here with something related to the size of the coefficient list. There might be, and probably are, other points in the code where some changes will be needed and that I’m missing at the moment. Also the text2workspace code should be changed in order to properly construct the new PDF.
+So TLDR; Out-of-the-box this is not possible. It should be possible to change the underlying code to achieve this, but it is a relatively large change, I don’t know if anyone is available to work on that right now.
+Best,
+Giacomo
+----------------------------------------
+
+REPLY 3 (by amarini @ 2026-06-15T21:14:07.289Z):
+Ciao Andrea,
+Adding to Giacomo’s point, you can provide +/- n sigma points (instead of +/- 1) and use a 1/n factor in the datacard definition. This approach models certain regions of the phase space more as an interpolation rather than an extrapolation (see the link below). This construct was used, for example, in a simplified variation of the Hgg Run 1 analysis (though not the fully parametric one described in the paper).
+Returning to your question: the core issue is understanding how a bin generally morphs between n given points. Currently, with two points (plus the nominal), we already have two reasonable interpolation schemes for the yields (shape and shapeN, as described here). We have also considered different interpolation schemes, but ultimately, we must balance computational simplicity with boundary conditions (e.g., keeping the likelihood L continuous and differentiable). Polynomials perform well in these respects.
+With more points, the yield interpolation can become overconstrained. One has to choose between a fit or a spline in the interpolation region , and then adapt while still guessing an extrapolation regime. [**]
+Ultimately, neither approach seems to solve every problem. With fits, for instance, one must always ensure that the curve passes through the nominal point and remains reasonably continuous; however, the resulting interpolated yields can sometimes look strange. For example, if you have N points, would you rather accept that the interpolation might deviate significantly at, say, the 3rd point? Or would you prefer the yields to have multiple local maxima and minima (and then have to figure out if you’re stuck in the wrong one)? Furthermore, how do you extrapolate? Do you use N and N-1, or N and the 0th point? What if these points are affected by statistical fluctuations?
+Combine is very versatile. If you want to study this further, the easiest way to implement the morphing might be using alternative constructs. If you identify one channel (in Combine jargon) per bin of your histogram, you can use the rateParam, param, and extArgs constructs to create a multiplicative nuisance (ideally similar to a logNormal in each bin) with an arbitrary modeling scheme for either the constraint or the rate itself. A similarly detailed approach can likely be constructed for a histogram using RooParametricHist [*]. If I recall correctly, a version of this approach was studied and used by the HH analyses in Run 2 to model logNormal uncertainties with a variable sigma constraint as a function of the POI.
+In summary, I believe we need an operational definition of what constitutes a “proper” interpolation or extrapolation. If it isn’t obvious with 3 points, it certainly won’t be easier with 5, 7, or 9.
+Cheers,
+-Andrea
+[*] N.B. There is a slight difference here, residing in the fact that Combine currently treats normalization as a separate quantity.
+[**] In this context, a “fit” means you have N points plus some eventual constraints, and you accept that the interpolation scheme does not necessarily pass through all of them. A “spline” implies a functional construct that passes exactly through all the points, again with potential constraints.
+----------------------------------------
+
+REPLY 4 (by amassiro @ 2026-06-16T07:46:13.520Z):
+Dear Giacomo and Andrea,
+thanks a lot for the detailed answers, the suggestions, and the ideas on how I might proceed.
+As an example of a “different” prior for a nuisance, I was thinking about a scale factor on efficiency, e.g. efficiency = 0.92 +/- 0.05, that is measured in data and we want to apply to our MC samples. Being an efficiency, the 1-sigma ±0.05 is ok, but the extrapolation to 2-sigma goes beyond the physical meaningful range (efficiency>1  ). What I was thinking is that if I give “+2sigma = 0.07” instead of the “0.10”, then the extrapolation would create a steeper likelihood in that direction.
+This is a possible use case of the original question.
+I’ll try to have a look at all the links you provided to see if, exploiting the versatile approach of combine, we can achieve this without changing the core of it.
+Best regards,
+Andrea
+----------------------------------------
+
+REPLY 5 (by amarini @ 2026-06-19T12:48:58.700Z):
+Hi Andrea,
+Provided that the scaling to production datacards needs to be assessed. Combine at the moment is optimized for certain set of common operations.
+For efficiencies, we could try to go back to the ratio of events from the binomial distribution or the ratio of Poisson.
+At the moment your likelihood is (with lognormal and one bin)
+
+\mathcal{L}_0 = \mathcal{P}(\dots+ s' k^\theta + b \dots) \mathcal{N}(0,\theta,1)
+
+where k=\sigma_\hat{p}/\hat{p} is the relative error, and s' = s_0 \hat{p} is the corrected yield. \mathcal{P} ~ Poisson, \mathcal{N} ~ Gaussian.
+Intuitively for a binomial we would like the overall likelihood to look like:
+
+\mathcal{L} = \mathcal{p}(\dots+s_0 p \dots ) \mathcal{B}(m;n,p)
+
+If you think it comes from ~ the ratio of two poisson parameters is just a matter of including the relevant scaling parameters in CR (w/ r a freely floating nuisance parameter, profiled in the likelihood). It should be exact but computationally more expensive than the line above (TBC, intuitively should be P*B and we profile over the rate, but I didn’t do all the calculations; in anycase the image is spot on :D)
+
+\mathcal{L}_1 = \mathcal{P}(\dots s_0 p +b \dots) \mathcal{P}(m;p r) \mathcal{P}(n-m;r (1-p))
+
+For the Binomial constrain (\hat{p}=m/n), if we accept a bit of an approximation, we can write it with a Poisson as well as
+
+\mathcal{L}_2 = \mathcal{P}(\dots) \mathcal{P}(m,n \cdot p)
+
+or (if you are closer to 100% effiiency)
+
+\mathcal{L}_2 = \mathcal{P}(\dots) \mathcal{P}(n-m,n \cdot (1-p))
+
+Note that all the above, after switching to the Poisson distribution could be implemented as CR and rateParameters.
+You can see below the constrain part of p in the three cases for m = 27 and n = 29 (which should yield a similar regime to the one you pointed out of eff =0.92+/-0.05) and they are all pretty close.
+image1113×551 27.9 KB
+Cheers,
+-Andrea
+----------------------------------------

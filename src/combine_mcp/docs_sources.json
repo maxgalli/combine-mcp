@@ -32,8 +32,18 @@
         "bin/*.cpp"
       ],
       "url_template": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/blob/v10.6.0/{relpath}"
+    },
+    {
+      "id": "combine-forum",
+      "name": "CMS Combine — cms-talk Q&A",
+      "source_type": "local-forum",
+      "repo_url": "https://cms-talk.web.cern.ch/c/physics/cat/cat-stats/279",
+      "docs_site_url": "https://cms-talk.web.cern.ch",
+      "local_root": "../../corpora/forum",
+      "include_globs": ["topic_*.json"]
     }
   ]
 }
+
 
 

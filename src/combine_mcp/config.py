@@ -203,11 +203,13 @@ def load_sources(config_path: str | Path) -> dict[str, DocSource]:
     for item in data.get("sources", []):
         try:
             source_type = item.get("source_type", "mkdocs")
-            if source_type not in ("mkdocs", "local-paper", "local-files"):
+            if source_type not in (
+                "mkdocs", "local-paper", "local-files", "local-forum",
+            ):
                 msg = (
                     f"source {item.get('id')!r}: source_type "
-                    f"{source_type!r} not supported "
-                    "(currently 'mkdocs', 'local-paper', or 'local-files')"
+                    f"{source_type!r} not supported (currently 'mkdocs', "
+                    "'local-paper', 'local-files', or 'local-forum')"
                 )
                 raise ValueError(msg)
             if source_type == "mkdocs" and not item.get("search_index_url"):
@@ -235,6 +237,12 @@ def load_sources(config_path: str | Path) -> dict[str, DocSource]:
                         "requires include_globs"
                     )
                     raise ValueError(msg)
+            if source_type == "local-forum" and not item.get("local_root"):
+                msg = (
+                    f"source {item.get('id')!r}: source_type='local-forum' "
+                    "requires local_root"
+                )
+                raise ValueError(msg)
             vcs_provider = item.get("vcs_provider", "github")
             if vcs_provider != "github":
                 msg = (

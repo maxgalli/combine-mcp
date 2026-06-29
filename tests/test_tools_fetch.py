@@ -596,3 +596,183 @@ class TestFetchToolOnLocalFilesSource:
         assert "Recovery steps" in result
         assert "search_docs" in result
         assert "First 10 indexed paths" in result
+
+
+# ---------------------------------------------------------------------------
+# fetch_doc against a local-forum source (ForumIndex)
+# ---------------------------------------------------------------------------
+
+
+_FORUM_TOPIC = {
+    "topic_id": 142937,
+    "title": "Spikes in regularization scans",
+    "url": "https://cms-talk.web.cern.ch/t/142937",
+    "category_id": 279,
+    "tags": [],
+    "accepted_answer_post_number": 10,
+    "posts": [
+        {
+            "post_number": 1, "username": "naislam", "name": "Naila",
+            "created_at": "2024-01-01T00:00:00Z",
+            "updated_at": "2024-01-01T00:00:00Z",
+            "reply_to_post_number": None,
+            "is_accepted_answer": False,
+            "text": (
+                "I observe sharp spikes in the delta scans of the mean "
+                "global correlation coefficient. From our study these "
+                "appear linked to POI correlations."
+            ),
+            "cooked_html": "<p>...</p>",
+        },
+        {
+            "post_number": 10, "username": "amarini", "name": "Amarini",
+            "created_at": "2024-01-02T00:00:00Z",
+            "updated_at": "2024-01-02T00:00:00Z",
+            "reply_to_post_number": None,
+            "is_accepted_answer": True,
+            "text": (
+                "Use --robustHesse 1 with --cminDefaultMinimizerStrategy 1"
+            ),
+            "cooked_html": "<p>...</p>",
+        },
+    ],
+}
+
+
+class TestFetchToolOnLocalForumSource:
+    """End-to-end: fetch_doc routes local-forum through ForumIndex."""
+
+    def _make_forum_ctx(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> MagicMock:
+        from combine_mcp.tools._forum_index import ForumIndex
+
+        (tmp_path / "topic_142937.json").write_text(
+            json.dumps(_FORUM_TOPIC), encoding="utf-8",
+        )
+        src = DocSource(
+            id="combine-forum",
+            name="CMS Combine Forum",
+            repo_url="https://cms-talk.web.cern.ch/c/physics/cat/cat-stats/279",
+            docs_site_url="https://cms-talk.web.cern.ch",
+            source_type="local-forum",
+            local_root=str(tmp_path),
+            include_globs=("topic_*.json",),
+        )
+        sources = {"combine-forum": src}
+        indices = {
+            "combine-forum": ForumIndex(
+                local_root=tmp_path,
+                docs_site_url=src.docs_site_url,
+            ),
+        }
+        ctx: MagicMock = MagicMock()
+        ctx.request_context.lifespan_context = {
+            "http": mock_http,
+            "indices": indices,
+            "sources": sources,
+        }
+        return ctx
+
+    async def test_fetch_forum_thread_default_markdown(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_forum_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+
+        result = await tools["fetch_doc"](
+            "142937", source="combine-forum", ctx=ctx,
+        )
+        data = json.loads(result)
+        assert data["source"] == "combine-forum"
+        assert data["source_path"] == "142937"
+        assert data["url"] == "https://cms-talk.web.cern.ch/t/142937"
+        assert "ACCEPTED ANSWER" in data["content"]
+        mock_http.get.assert_not_called()
+
+    async def test_fetch_forum_by_url(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_forum_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+        result = await tools["fetch_doc"](
+            "https://cms-talk.web.cern.ch/t/142937",
+            source="combine-forum",
+            ctx=ctx,
+        )
+        data = json.loads(result)
+        assert data["source_path"] == "142937"
+        assert "robustHesse" in data["content"]
+
+    async def test_fetch_forum_outline_mode(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_forum_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+        result = await tools["fetch_doc"](
+            "142937", source="combine-forum", mode="outline", ctx=ctx,
+        )
+        data = json.loads(result)
+        assert data["mode"] == "outline"
+        assert data["accepted_answer_post_number"] == 10
+        post_numbers = [p["post_number"] for p in data["posts"]]
+        assert post_numbers == [1, 10]
+        # The accepted post must be flagged in the summary.
+        accepted_flag = next(
+            p["is_accepted_answer"] for p in data["posts"] if p["post_number"] == 10
+        )
+        assert accepted_flag is True
+
+    async def test_fetch_forum_post_accepted(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_forum_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+        result = await tools["fetch_doc"](
+            "142937",
+            source="combine-forum",
+            mode="post:accepted",
+            ctx=ctx,
+        )
+        data = json.loads(result)
+        assert data["mode"] == "post:accepted"
+        assert data["post_number"] == 10
+        assert data["url"].endswith("/142937/10")
+        assert "robustHesse" in data["content"]
+
+    async def test_fetch_forum_post_by_number(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_forum_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+        result = await tools["fetch_doc"](
+            "142937", source="combine-forum", mode="post:1", ctx=ctx,
+        )
+        data = json.loads(result)
+        assert data["post_number"] == 1
+        assert "sharp spikes" in data["content"]
+
+    async def test_fetch_forum_unknown_topic_returns_recovery(
+        self,
+        mock_http: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        ctx = self._make_forum_ctx(mock_http, tmp_path)
+        tools = capture_tools(register)
+        result = await tools["fetch_doc"](
+            "999999", source="combine-forum", ctx=ctx,
+        )
+        assert "Recovery steps" in result
+        assert "First 10 indexed topic ids" in result
