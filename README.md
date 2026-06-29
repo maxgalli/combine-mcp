@@ -1,50 +1,109 @@
 # combine-mcp
 
-MCP Server for searching multiple CERN documentation sites via a unified interface. Supports two site shapes: **MkDocs** (BM25 over the published `search_index.json`) and legacy **GitBook v2/CLI** (BM25 over the markdown files listed in `SUMMARY.md`, walked once per 24 h).
+An MCP server exposing the CMS Combine corpus to any MCP-aware LLM client
+(Claude Desktop, Claude Code, opencode, Cursor, …). One server, four
+sources, two tools, no embeddings.
 
-This server exposes two tools an LLM agent can use to discover and read
-documentation from multiple CERN sites (ATLAS software, computing, databases,
-batch, cloud, ML@CERN, SWAN, FTS3, and more) without crawling.
-
-> **Read-only by design.** No write tools. Public sources need no
-> credentials; auth-gated sources read a token from an environment variable
-> at request time — tokens are never forwarded to the LLM
-> (arcade.dev Secret Injection pattern).
+| | |
+|---|---|
+| Corpus | Combine docs, paper, source code, cms-talk forum |
+| Retrieval | BM25 in-memory (via `rank_bm25`) |
+| Transport | stdio (default) or streamable HTTP |
+| Auth | none — all sources are public or local |
+| Read-only | yes; no write tools |
 
 ## Architecture
 
 ```
-LLM <--MCP/stdio|HTTP--> combine-mcp serve
-                            |
-                            +-- MkDocs sources (search_index.json -> BM25)
-                            |   +-- atlas-sft, atlas-computing, atlas-databases
-                            |   +-- batch, cloud, ml, swan
-                            |
-                            +-- GitBook sources (SUMMARY.md walk -> BM25)
-                            |   +-- fts
-                            |
-                            +-- GitLab Files Raw API (live, on demand)
-                                  https://gitlab.cern.ch/api/v4/...
+LLM client                       combine-mcp serve
+   │      ┌──────── MCP/stdio ────────►│
+   │ ◄────┘                            │
+   │                                   ├─ search_docs     ┐
+   │                                   ├─ fetch_doc       │ tools
+   │                                   └─ docs://sources  ┘ resource
+   │                                   │
+   │                       ┌───────────┴───────────┐
+   │                       │  Lazy BM25 per source │
+   │                       └─────┬────────┬────────┘
+   │                             │        │
+   │     ┌── combine-docs ───────┘        │
+   │     │     MkDocs published index +   │
+   │     │     GitHub raw bodies          │
+   │     │                                │
+   │     ├── combine-paper ───────────────┤
+   │     │     local file split into      │
+   │     │     sections                   │
+   │     │                                │
+   │     ├── combine-code ────────────────┤
+   │     │     submodule walk,            │
+   │     │     one file = one document    │
+   │     │                                │
+   │     └── combine-forum ───────────────┘
+   │           scraped Discourse JSONs,
+   │           one topic = one document
 ```
 
-Each MkDocs site publishes a search payload at `/search/search_index.json`.
-The server downloads each index once per 24 h, builds in-memory BM25 rankers,
-and serves search hits from them. GitBook sites (no search payload) are
-indexed by walking `SUMMARY.md`, fetching each linked `.md` page from the
-GitLab Files API in parallel (concurrency-limited), and building the BM25
-ranker over title+body — also refreshed at most every 24 h. Markdown bodies
-are pulled live from VCS on demand for both backends.
+The corpus assets are vendored / submoduled under `corpora/`:
+
+```
+corpora/
+├── paper_clean.txt           ← cleaned text of arXiv:2404.06614v2
+├── combine/                  ← Combine submodule pinned at v10.6.0
+└── forum/                    ← Discourse scrape (combine-mcp scrape)
+    ├── topic_*.json
+    ├── topic_*.txt
+    └── .manifest.json
+```
 
 ## Installation
 
 ```bash
-pip install combine-mcp
+git clone --recurse-submodules <repo-url> combine-mcp
+cd combine-mcp
+uv venv .venv
+uv pip install --python .venv -e .
 ```
 
-Or with pixi:
+If you cloned without `--recurse-submodules`:
 
 ```bash
-pixi install
+git submodule update --init --recursive
+```
+
+Verify the Combine submodule is at the pinned tag:
+
+```bash
+git -C corpora/combine describe --tags        # → v10.6.0
+```
+
+## Populating the forum corpus
+
+The `combine-docs`, `combine-paper`, and `combine-code` sources are
+ready immediately after the clone. The `combine-forum` source is empty
+until you run the scraper:
+
+```bash
+# 1. Grab a cms-talk session cookie from your browser:
+#    devtools → Application → Cookies → cms-talk.web.cern.ch
+#    Copy the values of BOTH `_forum_session` and `_t`.
+export DISCOURSE_COOKIE='_forum_session=<v>; _t=<v>'
+
+# 2. Smoke test with a small limit:
+./.venv/bin/combine-mcp scrape --limit 3
+
+# 3. Run the full scrape (~20-30 min the first time; incremental afterwards):
+./.venv/bin/combine-mcp scrape
+```
+
+Subsequent runs are incremental — only topics whose `last_posted_at`
+has changed are re-fetched. The manifest at `corpora/forum/.manifest.json`
+tracks this state.
+
+Alternatively, if you have a recent scrape elsewhere (e.g., from a
+sibling `combine-bot` repo), you can `rsync` it in:
+
+```bash
+rsync -avh ~/path/to/scraped/forum/ corpora/forum/
 ```
 
 ## Usage
@@ -55,10 +114,10 @@ pixi install
 combine-mcp serve
 ```
 
-Or with a custom config file:
+Or with a custom source config:
 
 ```bash
-combine-mcp serve --config /path/to/docs-sources.json
+combine-mcp serve --config /path/to/my-sources.json
 ```
 
 ### As a remote MCP (Streamable HTTP)
@@ -67,224 +126,224 @@ combine-mcp serve --config /path/to/docs-sources.json
 combine-mcp serve --transport streamable-http --port 8000
 ```
 
-This is the deployment shape used by MCP servers at `*.app.cern.ch/mcp`.
+### Claude Desktop / Claude Code / opencode (stdio)
 
-### Claude Desktop / opencode (stdio)
+Drop this into the client's MCP config (`~/Library/Application Support/Claude/claude_desktop_config.json` for Claude Desktop):
 
 ```json
 {
   "mcpServers": {
-    "docs": {
-      "command": "combine-mcp",
+    "combine": {
+      "command": "/absolute/path/to/combine-mcp/.venv/bin/combine-mcp",
       "args": ["serve"]
     }
   }
 }
 ```
 
-### opencode-style remote MCP
+Restart the client. The agent now has `search_docs` and `fetch_doc`
+available on the four Combine sources.
 
-In `opencode.json`:
+### Inspector (preview without an LLM client)
 
-```json
-"mcp": {
-  "docs": {
-    "type": "remote",
-    "url": "https://combine-mcp.app.cern.ch/mcp",
-    "oauth": false
-  }
-}
+```bash
+npx @modelcontextprotocol/inspector ./.venv/bin/combine-mcp serve
 ```
+
+Open the URL printed in the terminal, click **Connect**, and use the
+Tools tab to drive `search_docs` / `fetch_doc` by hand.
 
 ## Available tools
 
-| Tool | Description |
-|------|-------------|
-| `search_docs` | BM25 search across a chosen documentation source (title + URL + snippet only); `source` param chooses which docs site to search |
-| `fetch_doc` | Fetch one page's Markdown/outline from the source repository; supports `mode="markdown" \| "outline" \| "sections:<heading>"` |
+| Tool | Returns |
+|---|---|
+| `search_docs(query, source="combine-docs", limit=10)` | Token-efficient ranked hits: `{title, url, path, section, score, snippet}`. No body. |
+| `fetch_doc(url_or_path, source="combine-docs", mode="markdown")` | The body of one document, projected through `mode`. |
 
-### Supported doc sources
+### Fetch modes
 
-| Source ID | Documentation | Backend |
-|-----------|---------------|---------|
-| `atlas-sft` | [ATLAS software/Athena](https://atlas-software.docs.cern.ch) | MkDocs |
-| `atlas-computing` | [ATLAS computing guide](https://atlas-computing.docs.cern.ch) | MkDocs (auth-gated) |
-| `atlas-databases` | [ATLAS databases](https://atlas-databases.docs.cern.ch) | MkDocs (auth-gated) |
-| `batch` | [HTCondor Batch](https://batchdocs.web.cern.ch) | MkDocs |
-| `cloud` | [CERN Cloud](https://clouddocs.web.cern.ch) | MkDocs |
-| `ml` | [ML@CERN](https://ml.docs.cern.ch) | MkDocs |
-| `swan` | [SWAN (Jupyter)](https://swan.docs.cern.ch) | MkDocs |
-| `fts` | [FTS3 (File Transfer Service)](https://fts3-docs.web.cern.ch/fts3-docs/) | GitBook (legacy CLI) |
+| `mode` | All sources | `combine-forum` only |
+|---|---|---|
+| `markdown` (default) | full body / section / file | full thread transcript |
+| `outline` | `#`/`##`/`###` headings (docs/paper) or top-level defs (code) | list of posts: `{post_number, username, char_count, is_accepted_answer}` |
+| `sections:<heading>` | one named section (docs/paper) | — |
+| `post:<N>` | — | one specific post's body, with a per-post URL |
+| `post:accepted` | — | the accepted-answer post (404-style recovery if the thread isn't solved) |
 
-## Available resources
+## Available sources
+
+| Source ID | Corpus | Backend | Refresh |
+|---|---|---|---|
+| `combine-docs` | [Combine official docs](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest) | MkDocs `search_index.json` + GitHub raw bodies | 24-h TTL |
+| `combine-paper` | Combine paper (arXiv:2404.06614v2) | Single local text file split into sections | mtime + 24-h TTL |
+| `combine-code` | Combine source tree (`v10.6.0` submodule) | Per-file BM25 over Python / C++ headers / scripts / bin | dir mtime + 24-h TTL |
+| `combine-forum` | cms-talk Statistics category | Per-topic BM25 over scraped Discourse JSONs | dir mtime + 24-h TTL |
+
+The agent can introspect this list at runtime via the `docs://sources`
+MCP resource.
+
+## Resources
 
 | URI | Description |
-|-----|-------------|
-| `docs://sources` | Lists all registered documentation sources and metadata (URLs, VCS paths, freshness) |
+|---|---|
+| `docs://sources` | Markdown listing every registered source with its name and URLs. Useful for "what's available?" introspection. |
+
+## CLI
+
+```
+combine-mcp serve [--transport stdio|streamable-http] [--host HOST] [--port PORT] [--config PATH]
+combine-mcp scrape [--output PATH] [--full] [--sleep SECONDS] [--limit N]
+```
+
+`scrape` runs the cms-talk scraper:
+
+- Incremental by default — only refetches topics whose latest reply
+  changed.
+- `--full` rescrapes every topic (catches silent edits to old posts).
+- `--limit N` is a debug knob — stops after N topics.
+
+Cookies expire when your CERN SSO session does (typically days to
+weeks). If you start getting 403s mid-run, re-grab and re-export
+`DISCOURSE_COOKIE`; the manifest is incremental so the next run resumes
+where the failed one stopped.
+
+## Periodic scraping (cron)
+
+For an unattended deployment, refresh the forum every two days:
+
+```cron
+0 4 */2 * * /usr/bin/env -i HOME=$HOME bash -c \
+    'source $HOME/.combine-mcp.env && \
+     cd /opt/combine-mcp && \
+     ./.venv/bin/combine-mcp scrape \
+     >> /var/log/combine-mcp/scrape.log 2>&1'
+```
+
+Where `~/.combine-mcp.env` is a `chmod 600` file containing your
+`DISCOURSE_COOKIE` export. Cron runs with a stripped env, so the wrapper
+sources the file explicitly.
+
+For a personal Mac, skip cron — just run `combine-mcp scrape` by hand
+when you want fresh data.
 
 ## Configuration
 
-### Source config file
+Pass `--config /path/to/sources.json` to override the bundled source
+registry. Each entry's schema:
 
-Pass `--config /path/to/docs-sources.json` to point at a custom source
-registry. The bundled `docs_sources.json` is used by default.
-
-Each entry in the `sources` array describes one MkDocs site:
-
-```json
+```jsonc
 {
   "sources": [
-
-    // --- MkDocs public source (no credentials needed) ---
+    // --- MkDocs source: BM25 over a published search payload ---
     {
-      "id": "my-public-docs",
-      "name": "My Public Docs",
-      "search_index_url": "https://my-public-docs.example.com/search/search_index.json",
-      "repo_url":         "https://gitlab.example.com/group/my-public-docs",
-      "docs_site_url":    "https://my-public-docs.example.com"
+      "id": "my-mkdocs-site",
+      "name": "My MkDocs Site",
+      "source_type": "mkdocs",                        // optional, default
+      "search_index_url": "https://.../search/search_index.json",
+      "repo_url":         "https://github.com/<owner>/<repo>",
+      "docs_site_url":    "https://...",
+      "vcs_provider":     "github",                   // optional, default
+      "default_branch":   "main"                      // optional, default
     },
 
-    // --- MkDocs auth-gated source (Bearer / OIDC token) ---
+    // --- Local text file (paper-style): BM25 over detected sections ---
     {
-      "id": "my-internal-docs",
-      "name": "My Internal Docs",
-      "search_index_url": "https://internal.example.com/search/search_index.json",
-      "repo_url":         "https://gitlab.example.com/group/my-internal-docs",
-      "docs_site_url":    "https://internal.example.com",
-      "auth": {
-        "env_var": "MY_INTERNAL_DOCS_TOKEN"
-      }
+      "id": "my-paper",
+      "name": "My Paper",
+      "source_type":   "local-paper",
+      "repo_url":      "https://arxiv.org/abs/0000.00000",
+      "docs_site_url": "https://arxiv.org/abs/0000.00000",
+      "local_path":    "../../corpora/my-paper.txt"   // relative to JSON dir
     },
 
-    // --- GitBook source (legacy CLI v2; walks SUMMARY.md) ---
+    // --- Local file tree (code-style): one file = one BM25 document ---
     {
-      "id": "my-gitbook-docs",
-      "name": "My GitBook Docs",
-      "source_type":    "gitbook",
-      "repo_url":       "https://gitlab.example.com/group/my-gitbook-docs",
-      "docs_site_url":  "https://my-gitbook-docs.example.com",
-      "summary_path":   "SUMMARY.md",
-      "default_branch": "master"
+      "id": "my-code",
+      "name": "My Code",
+      "source_type":   "local-files",
+      "repo_url":      "https://github.com/<owner>/<repo>",
+      "docs_site_url": "https://github.com/<owner>/<repo>",
+      "local_root":    "../../corpora/my-code",
+      "include_globs": ["**/*.py", "**/*.h"],
+      "url_template":  "https://github.com/<owner>/<repo>/blob/main/{relpath}"
+    },
+
+    // --- Local Discourse scrape (forum-style): one topic = one document ---
+    {
+      "id": "my-forum",
+      "name": "My Forum",
+      "source_type":   "local-forum",
+      "repo_url":      "https://my-discourse.example.com/c/foo",
+      "docs_site_url": "https://my-discourse.example.com",
+      "local_root":    "../../corpora/my-forum",
+      "include_globs": ["topic_*.json"]               // optional, default
     }
   ]
 }
 ```
 
-For `source_type: "gitbook"`, `search_index_url` is omitted. The indexer
-walks `summary_path` (default `SUMMARY.md`) in the repo to discover pages.
-Set `default_branch` to whatever ref holds the rendered output (legacy
-GitBook repos commonly use `master`; MkDocs sources default to `main`).
-
-Then set the environment variable before starting the server:
-
-```bash
-export MY_INTERNAL_DOCS_TOKEN="<your-token>"
-combine-mcp serve --config my-sources.json
-```
-
-The token is read once per request and attached as
-`Authorization: Bearer <token>`. It is **never** surfaced in tool output
-or passed to the LLM.
-
-#### `auth` block fields
-
-| Field | Default | Description |
-|-------|---------|-------------|
-| `env_var` | *(required)* | Name of the environment variable holding the credential. |
-| `header` | `Authorization` | HTTP header to set. Change to `Private-Token` for GitLab PATs. |
-| `prefix` | `Bearer ` | Prepended to the token value. Set to `""` for raw tokens (e.g. GitLab PATs). |
-
-**GitLab PAT example:**
-
-```json
-"auth": {
-  "env_var":  "MY_GITLAB_PAT",
-  "header":   "Private-Token",
-  "prefix":   ""
-}
-```
-
-#### What happens when the env var is missing
-
-If an LLM calls `search_docs` or `fetch_doc` on an auth-gated source and
-the env var is unset, the tool returns a structured Recovery Guide — no
-exception propagates to the agent:
-
-```
-Recovery steps:
-• Set the environment variable $MY_INTERNAL_DOCS_TOKEN to a valid token
-  before querying this source.
-• Public sources (no auth required): my-public-docs
-```
-
-#### `docs://sources` resource
-
-The MCP resource `docs://sources` lists every registered source and flags
-auth-gated ones with the required env var name — useful for introspection:
-
-```
-Available documentation sources:
-
-  - my-internal-docs       - My Internal Docs  [auth: $MY_INTERNAL_DOCS_TOKEN]
-  - my-public-docs         - My Public Docs
-```
+Relative paths in `local_path` / `local_root` are resolved against the
+JSON config file's directory. Absolute paths pass through unchanged.
 
 ## Design principles ([arcade.dev](https://www.arcade.dev/patterns) patterns)
 
-The two tools are deliberately small and aligned with arcade.dev patterns:
+The two tools are deliberately small:
 
 - **Query Tool** — both tools are read-only.
-- **Tool Description** — descriptions are written for LLM comprehension
-  with explicit scope boundaries to avoid router confusion.
 - **Multi-source Router** — `source` parameter routes requests to the
-  correct documentation index; unknown values return a Recovery Guide
-  listing valid sources.
-- **Smart Defaults** — `limit=10`, `mode="markdown"`, `source="atlas-sft"`.
-  Most calls pass zero optional args.
-- **Constrained Input** — `source` is validated against the closed set
-  of registered documentation sites.
-- **Natural Identifier** — `fetch_doc` accepts a rendered URL, a relative
-  path, or a direct `.md` path, and resolves each shape internally.
-- **Token-Efficient Response** — search returns title / URL / snippet
-  only (no body); body fetch is a separate call.
-- **Progressive Detail / Operation Mode** — fetch supports
-  `outline` (headings only) and `sections:<heading>` (one section)
-  before the agent commits to the full body.
-- **Resource Reference** — every search hit carries the public docs URL
-  so it can be cited / re-fetched without paying the search index cost
-  again.
+  correct index; unknown values return a Recovery Guide listing the
+  registered sources.
+- **Smart Defaults** — `limit=10`, `mode="markdown"`, `source="combine-docs"`.
+- **Constrained Input** — `source` is validated against the closed
+  set of registered sources.
+- **Natural Identifier** — `fetch_doc` accepts URLs, relative paths,
+  bare section ids (paper), bare relpaths (code), or bare topic ids
+  (forum) and resolves each shape internally.
+- **Token-Efficient Response** — `search_docs` returns title / URL /
+  snippet only; bodies are a separate `fetch_doc` call.
+- **Progressive Detail / Operation Mode** — `mode` controls projection
+  granularity (full / outline / one section / one post / accepted-only).
 - **Recovery Guide** — every error returns a structured string listing
-  concrete next-tool calls (e.g. "call `search_docs` with `source="batch"`
-  to find the correct URL first").
-- **Idempotent / cacheable** — search indexes are cached for 24 h with
-  staleness checks; Markdown fetches piggyback on HTTP caching.
-- **Tool Versioning** — the package version (`__init__.py:__version__`)
-  is the durable handle; pin it on the deployment side.
+  concrete next-tool calls.
+- **Idempotent / cacheable** — indexes are lazy-loaded and cached for
+  24 h plus a mtime check on local sources.
 
 ## Development
 
 ```bash
-pixi run test          # Quick tests (mocked, no network)
-pixi run test-cov      # With coverage
-pixi run lint          # Pre-commit + pylint
-pixi run check         # Lint + test
-pixi run check-all     # Lint + all tests with coverage
+./.venv/bin/pytest -q                   # full test suite (no network)
+./.venv/bin/pytest tests/test_<m>.py    # one module
 ```
 
-Tests are fully offline — the BM25 index is fed a small fixture corpus,
-and the GitLab raw fetcher is mocked. No CERN network access required.
+Tests are fully offline. The MkDocs HTTP client is mocked; local
+backends use synthetic fixtures written into `tmp_path`. No CERN
+network access required to run the suite.
 
-## Relationship to sibling MCPs
+## Project layout
 
-| MCP | Scope |
-|-----|-------|
-| `combine-mcp` (this) | Multi-source: ATLAS software/computing/databases, Batch, Cloud, ML@CERN, SWAN |
-| [`cernopendata-mcp`](../cernopendata-mcp) | CERN Open Data portal records, files, glossary |
-| [`atlasopenmagic-mcp`](../atlasopenmagic-mcp) | ATLAS metadata catalogue (AMI), dataset / run-list lookups |
-
-The three are designed to be loaded together in
-[`open-data-assistant-config`](../open-data-assistant-config); each tool
-description spells out its scope to keep the router's confusability low.
+```
+combine-mcp/
+├── corpora/                                  ← data (paper, code submodule, forum)
+│   ├── paper_clean.txt
+│   ├── combine/                              ← git submodule v10.6.0
+│   └── forum/                                ← combine-mcp scrape output
+├── src/combine_mcp/
+│   ├── cli.py                                ← `combine-mcp serve|scrape`
+│   ├── server.py                             ← FastMCP setup, lifespan, _build_index
+│   ├── config.py                             ← DocSource + JSON loading
+│   ├── scrape.py                             ← cms-talk Discourse scraper
+│   ├── docs_sources.json                     ← the source registry
+│   ├── resources.py                          ← docs://sources MCP resource
+│   ├── nomenclature.py                       ← the instructions blob
+│   └── tools/
+│       ├── search.py                         ← `search_docs` handler
+│       ├── fetch.py                          ← `fetch_doc` handler (4-way dispatch)
+│       ├── _index.py                         ← DocsIndex + shared BM25 helpers
+│       ├── _paper_index.py                   ← PaperIndex
+│       ├── _code_index.py                    ← CodeIndex
+│       └── _forum_index.py                   ← ForumIndex
+└── tests/                                    ← offline test suite
+```
 
 ## License
 
