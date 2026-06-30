@@ -16,7 +16,7 @@ from combine_mcp.config import (
     get_default_sources,
     load_sources,
 )
-from combine_mcp.nomenclature import COMBINE_DOCS_GUIDE
+from combine_mcp.nomenclature import COMBINE_CORPUS_GUIDE
 from combine_mcp.resources import register as register_resources
 from combine_mcp.tools import fetch, search
 from combine_mcp.tools._code_index import CodeIndex
@@ -82,13 +82,13 @@ def _build_instructions(sources: dict[str, DocSource]) -> str:
         for src in sorted(sources.values(), key=lambda s: s.id)
     )
     return (
-        "MCP server exposing the CMS Combine documentation as a "
-        "queryable corpus. BM25 over the published MkDocs "
-        "search_index.json; Markdown bodies fetched live from GitHub. "
-        "Read-only.\n\n"
+        "MCP server exposing the CMS Combine corpus across four "
+        "complementary sources (official docs, methodology paper, "
+        "source code, cms-talk Q&A). BM25 retrieval; read-only.\n\n"
         f"Registered sources:\n{rows}\n\n"
-        "Use search_docs(source='<id>') to query one source.\n\n"
-        + COMBINE_DOCS_GUIDE
+        "Use search_docs(source='<id>') to query one source; "
+        "fetch_doc(url_or_path, source) to retrieve a body.\n\n"
+        + COMBINE_CORPUS_GUIDE
     )
 
 

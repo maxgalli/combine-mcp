@@ -2,60 +2,110 @@
 
 Embedded into the FastMCP ``instructions`` string by
 :func:`combine_mcp.server._build_instructions`. Kept here so the
-agent-facing description of the corpus lives in one place.
+agent-facing description of the four-source corpus lives in one
+place.
 """
 
 from __future__ import annotations
 
-COMBINE_DOCS_GUIDE = """\
-# CMS Combine — Quick Reference
+COMBINE_CORPUS_GUIDE = """\
+# CMS Combine — Corpus Guide
 
-Source site: https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest
-Source repo: https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit (public)
-Backend:     Material for MkDocs (BM25 over the published search_index.json)
+CMS Combine (HiggsAnalysis-CombinedLimit) is the statistical-analysis
+tool used across CMS searches and measurements: datacards, physics
+models, limits, fits, goodness-of-fit, significance, and so on.
 
-## Scope
+This MCP exposes four complementary sources covering Combine. Each is
+queried independently via the ``source`` argument of ``search_docs``
+and ``fetch_doc``. Pick the one that best fits the question.
 
-This MCP exposes the official CMS Combine (HiggsAnalysis-CombinedLimit)
-documentation: the statistical-analysis tool used across CMS searches
-and measurements. Coverage includes:
+## Sources
 
-- Datacard syntax and physics models
-- Running modes (AsymptoticLimits, FitDiagnostics, MultiDimFit,
-  HybridNew, ChannelCompatibilityCheck, Significance, GoodnessOfFit, ...)
-- Common statistical methods, advanced use cases, debugging fits
-- Tutorials and worked examples
-- Tool reference and option flags
+### ``combine-docs`` — official documentation
+The maintained how-to / reference site at
+https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest.
+Best for: command-line options, running modes (AsymptoticLimits,
+FitDiagnostics, MultiDimFit, HybridNew, ChannelCompatibilityCheck,
+Significance, GoodnessOfFit, ...), datacard syntax, tutorials, common
+debugging recipes. Backend: BM25 over the published MkDocs
+``search_index.json``; Markdown bodies fetched live from GitHub.
 
-## NOT in scope
+### ``combine-paper`` — the methodology paper
+arXiv:2404.06614v2. Best for: definitions, the underlying statistical
+model, why an option exists, citations. Use this when the docs
+describe *what* a flag does but you need to know *why* or what it
+formally means. Backend: BM25 over local sections.
 
-- The Combine paper (arXiv:2404.06614) — not exposed here.
-- The Combine source code — not exposed here.
-- cms-talk forum Q&A — not exposed here.
+### ``combine-code`` — the source code (pinned to v10.6.0)
+The Python and C++ implementation. Best for: questions like "what
+exactly does this option do under the hood", "what code path is
+triggered by X", "is feature Y implemented or only documented".
+Backend: BM25 over per-file documents from the pinned submodule.
 
-These three corpora may become additional MCP sources in the future.
+### ``combine-forum`` — cms-talk Q&A
+Scraped threads from the CMS Statistics category on
+https://cms-talk.web.cern.ch. Best for: error messages, "I'm getting
+this warning, what does it mean", workarounds that haven't made it
+into the docs, real-world examples of running into edge cases.
+Backend: BM25 over local Discourse JSONs.
+
+## Which source to ask first
+
+- Concrete ``combine`` CLI question or option lookup → ``combine-docs``.
+- "Why does it work this way?" / methodology → ``combine-paper``.
+- "What does the code actually do here?" → ``combine-code``.
+- "I'm seeing this error/warning" / "anyone else hit this?" → ``combine-forum``.
+
+When the first source comes up short, fall through to the next most
+likely one — the sources are complementary, not redundant.
 
 ## Tools
 
-- ``search_docs(query, source="combine-docs", limit=?)`` — BM25 search
-  over the published MkDocs search payload. Returns titles, URLs,
-  snippets only.
-- ``fetch_doc(url_or_path, source="combine-docs", mode=?)`` — fetch the
-  upstream Markdown source from GitHub. ``mode`` is one of:
+``search_docs(query, source, limit=10)``
+  BM25 keyword search. Returns titles, URLs, paths, scores, snippets.
+  No bodies — call ``fetch_doc`` for the body.
+
+``fetch_doc(url_or_path, source, mode="markdown")``
+  Fetch one document. ``mode`` is source-dependent:
+
+  All sources:
     - ``"markdown"`` (default) — full body
-    - ``"outline"`` — H1-H3 headings only
-    - ``"sections:<heading>"`` — just the matching section
+    - ``"outline"`` — headings (docs/paper), top-level defs (code), or
+      a per-post summary (forum)
+    - ``"sections:<heading>"`` — extract one named section (docs/paper)
 
-## Typical flow
+  ``combine-forum`` only:
+    - ``"post:<N>"`` — one specific post's body, with a per-post URL
+    - ``"post:accepted"`` — the accepted-answer post (returns an error
+      if the thread isn't marked solved)
 
-1. ``search_docs("what does --robustFit do")`` -> hits with URLs.
-2. ``fetch_doc(<url>, mode="outline")`` -> headings.
-3. ``fetch_doc(<url>, mode="sections:Common options")`` -> just that
-   section's Markdown.
+## Typical flows
+
+Option lookup (most common):
+  1. ``search_docs("what does --robustFit do", source="combine-docs")``
+  2. ``fetch_doc(<url>, source="combine-docs", mode="sections:Common options")``
+
+Error / warning diagnosis:
+  1. ``search_docs("<error message snippet>", source="combine-forum")``
+  2. ``fetch_doc("<topic id>", source="combine-forum", mode="outline")``
+  3. ``fetch_doc("<topic id>", source="combine-forum", mode="post:accepted")``
+
+Methodology / definitions:
+  1. ``search_docs("<concept>", source="combine-paper")``
+  2. ``fetch_doc("<section id>", source="combine-paper")``
+
+Code drill-down:
+  1. ``search_docs("<class or function name>", source="combine-code")``
+  2. ``fetch_doc("<relpath>", source="combine-code", mode="outline")``
+  3. ``fetch_doc("<relpath>", source="combine-code", mode="sections:<heading>")``
 
 ## Freshness
 
-The search index is refreshed at most every 24 hours from the published
-MkDocs payload at ``/search/search_index.json``. Source Markdown is
-fetched live from GitHub (raw.githubusercontent.com) on each call.
+- ``combine-docs``: 24-hour TTL on the MkDocs search payload; Markdown
+  bodies fetched live from GitHub each call.
+- ``combine-paper``, ``combine-code``, ``combine-forum``: local. 24-hour
+  TTL plus a file/dir mtime check, so in-place edits and re-scrapes are
+  picked up automatically.
+- The forum corpus is regenerated by running ``combine-mcp scrape``
+  (incremental by default; the manifest tracks ``last_posted_at``).
 """
