@@ -426,26 +426,47 @@ def register(mcp: FastMCP) -> None:
         *,
         ctx: Context[Any, Any],
     ) -> str:
-        """Fetch one documentation page as Markdown from upstream VCS.
+        """Fetch one document from a Combine source, projected through ``mode``.
 
-        Tries both ``docs/<path>/index.md`` and ``docs/<path>.md`` for
-        directory-style inputs (MkDocs admits both). Falls through 404s.
+        The shape of ``url_or_path`` and the available ``mode`` values
+        depend on ``source``. Use ``search_docs`` first if you don't
+        already have a URL or identifier in hand.
 
         Args:
-            url_or_path: Any of:
-                - A rendered URL, e.g.
-                  ``https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest/part3/runningthetool/``
-                - A relative path, e.g. ``part3/runningthetool/``
-                - A direct ``.md`` source path, e.g.
-                  ``part3/runningthetool.md``
-            source: Documentation source ID. Default: ``combine-docs``.
-            mode: Output projection.
-                - ``"markdown"`` (default): full body.
-                - ``"outline"``: list of H1-H3 headings only - cheap way
-                  to scout a long page.
-                - ``"sections:<heading>"``: extract one section starting
-                  from a matching heading (case-insensitive). E.g.
-                  ``"sections:Common options"``.
+            url_or_path: Identifier of the document. Accepts:
+                - ``combine-docs``: a rendered URL, a relative path
+                  (``part3/runningthetool/``), or a ``docs/...md``
+                  source path. Directory inputs try both ``index.md``
+                  and ``<path>.md``.
+                - ``combine-paper``: a section id (``"4-2-1"``) or a
+                  URL with a ``#sec-<id>`` anchor.
+                - ``combine-code``: a file relpath
+                  (``"python/PhysicsModel.py"``) or a citation URL.
+                - ``combine-forum``: a topic id (``"142937"``) or a
+                  cms-talk URL (with or without a per-post suffix).
+            source: One of ``"combine-docs"`` (default),
+                ``"combine-paper"``, ``"combine-code"``,
+                ``"combine-forum"``.
+            mode: Output projection. Defaults to ``"markdown"`` (full
+                body).
+
+                Universal:
+                    - ``"markdown"`` — full body / section / file /
+                      thread transcript.
+                    - ``"outline"`` — H1-H3 headings (docs/paper),
+                      top-level defs/classes (code), or a per-post
+                      summary (forum).
+                    - ``"sections:<heading>"`` — slice from a matching
+                      heading to the next equal-or-higher heading
+                      (case-insensitive). Useful for docs/paper; not
+                      meaningful for forum.
+
+                ``combine-forum`` only:
+                    - ``"post:<N>"`` — one specific post's body
+                      (e.g. ``"post:1"``).
+                    - ``"post:accepted"`` — the accepted-answer post
+                      (errors if the thread is unsolved; use
+                      ``"outline"`` first if unsure).
         """
         source_norm = source.strip().lower() if source else "combine-docs"
 

@@ -33,18 +33,24 @@ def register(mcp: FastMCP) -> None:
         *,
         ctx: Context[Any, Any],
     ) -> str:
-        """Keyword search across a documentation source.
+        """Keyword search (BM25) across one of the registered Combine sources.
 
         Returns ``{title, url, path, section, score, snippet}`` per hit.
-
-        After a hit, call ``fetch_doc(url_or_path, source)`` to retrieve
-        the Markdown body (full, outline, or one named section).
+        No bodies — call ``fetch_doc`` with the returned ``url`` (or
+        ``path``) to retrieve content.
 
         Args:
             query: Free-text query. Word-token matched (case-insensitive)
                 and ranked by BM25. Multi-token queries are AND-biased
                 via BM25 scoring, not strict AND.
-            source: Documentation source ID. Default: ``combine-docs``.
+            source: Which corpus to search. One of:
+                - ``"combine-docs"`` (default) — official MkDocs site
+                - ``"combine-paper"`` — methodology paper
+                  (arXiv:2404.06614)
+                - ``"combine-code"`` — source tree (pinned to v10.6.0)
+                - ``"combine-forum"`` — cms-talk Q&A threads
+                See the ``docs://sources`` resource or the server
+                instructions for guidance on which source to pick.
             limit: Max hits returned (1-25, default 10). Smaller is more
                 token-efficient.
         """
