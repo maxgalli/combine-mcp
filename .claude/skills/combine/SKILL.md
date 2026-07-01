@@ -79,9 +79,11 @@ Some questions are best answered by combining sources:
 - **"What does --robustHesse actually do under the hood?"** → docs for
   the description, code for the implementation.
 
-Don't routinely query all four sources for every question — that
-wastes calls. Query the second source only when the first leaves a
-real gap.
+Don't query all four sources routinely — that wastes calls. Default
+to one source per question. Parallel-querying two sources upfront is
+fine when the question genuinely spans dimensions (like "how AND
+why", or "reproduce the error AND explain the cause"). Fall through
+to a third source only when the first two leave a real gap.
 
 ## Output format
 
@@ -104,7 +106,11 @@ results. Be conservative:
   paper, code, or forum."
 - Suggest the user post on
   [cms-talk](https://cms-talk.web.cern.ch/c/physics/cat/cat-stats/279).
-- Do **not** answer from prior knowledge without flagging it.
+- Do **not** answer from prior knowledge without flagging it. If you
+  add context beyond what the corpus returned (e.g. comparing a
+  fetched method to a related one, or noting a well-known
+  consequence), say so explicitly: "not covered in the fetched
+  section, but…" or "this is well-known but not in the corpus".
 - Never paraphrase a forum reply as if it were the canonical doc.
   Cite the thread and let the user judge.
 
