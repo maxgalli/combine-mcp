@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "combine": {
+      "command": ".venv/bin/combine-mcp",
+      "args": ["serve"]
+    }
+  }
+}

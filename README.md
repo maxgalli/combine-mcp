@@ -126,9 +126,27 @@ combine-mcp serve --config /path/to/my-sources.json
 combine-mcp serve --transport streamable-http --port 8000
 ```
 
-### Claude Desktop / Claude Code / opencode (stdio)
+### Claude Code (project-scoped, easiest)
 
-Drop this into the client's MCP config (`~/Library/Application Support/Claude/claude_desktop_config.json` for Claude Desktop):
+The repo ships a project-level [`.mcp.json`](.mcp.json) at the root
+that auto-registers `combine-mcp` when you open the project. As long
+as you've installed into `.venv/` (see
+[Installation](#installation)), no config edit is needed. Verify with:
+
+```
+/mcp
+```
+
+inside a Claude Code session started from the repo root. You should
+see `combine` listed with its two tools.
+
+### Claude Desktop / user-scoped Claude Code / other clients
+
+For registration outside a project checkout (Claude Desktop, Claude
+Code user-scoped, opencode, Cursor, …), add this to the client's MCP
+config. For Claude Desktop the file is
+`~/Library/Application Support/Claude/claude_desktop_config.json`; for
+other clients consult their MCP docs — the schema is the same:
 
 ```json
 {
