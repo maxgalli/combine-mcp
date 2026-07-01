@@ -23,6 +23,7 @@ from combine_mcp.tools._code_index import CodeIndex
 from combine_mcp.tools._forum_index import ForumIndex
 from combine_mcp.tools._index import DocsIndex
 from combine_mcp.tools._paper_index import PaperIndex
+from combine_mcp.tools._remote_code_index import RemoteCodeIndex
 
 
 def _build_index(
@@ -37,9 +38,12 @@ def _build_index(
       file = one BM25 document.
     - ``local-forum`` -> :class:`ForumIndex` over Discourse-shaped JSONs,
       one topic = one BM25 document.
+    - ``github-tarball`` -> :class:`RemoteCodeIndex`, same shape as
+      :class:`CodeIndex` but bootstrapped by downloading a tarball at
+      a pinned ref from ``codeload.github.com``.
 
-    All four expose the same ``ensure_fresh`` / ``search`` interface so
-    the rest of the server doesn't need to branch.
+    All backends expose the same ``ensure_fresh`` / ``search`` interface
+    so the rest of the server doesn't need to branch.
     """
     if src.source_type == "local-paper":
         if src.local_path is None:
@@ -67,6 +71,14 @@ def _build_index(
             local_root=src.local_root,
             include_globs=src.include_globs or ("topic_*.json",),
             docs_site_url=src.docs_site_url,
+        )
+    if src.source_type == "github-tarball":
+        return RemoteCodeIndex(
+            repo_url=src.repo_url,
+            ref=src.default_branch,
+            include_globs=src.include_globs,
+            docs_site_url=src.docs_site_url,
+            url_template=src.url_template,
         )
     return DocsIndex(search_index_url=src.search_index_url)
 

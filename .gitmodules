@@ -1,3 +1,0 @@
-[submodule "corpora/combine"]
-	path = corpora/combine
-	url = https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit.git

@@ -43,37 +43,28 @@ LLM client                       combine-mcp serve
    │           one topic = one document
 ```
 
-The corpus assets are vendored / submoduled under `corpora/`:
+The corpus assets are vendored under `corpora/`:
 
 ```
 corpora/
 ├── paper_clean.txt           ← cleaned text of arXiv:2404.06614v2
-├── combine/                  ← Combine submodule pinned at v10.6.0
 └── forum/                    ← Discourse scrape (combine-mcp scrape)
     ├── topic_*.json
     ├── topic_*.txt
     └── .manifest.json
 ```
 
+The Combine source tree (`combine-code`) is **fetched on demand** from
+GitHub at the pinned tag (`v10.6.0`); it's not vendored locally, so
+there's no submodule to init.
+
 ## Installation
 
 ```bash
-git clone --recurse-submodules <repo-url> combine-mcp
+git clone <repo-url> combine-mcp
 cd combine-mcp
 uv venv .venv
 uv pip install --python .venv -e .
-```
-
-If you cloned without `--recurse-submodules`:
-
-```bash
-git submodule update --init --recursive
-```
-
-Verify the Combine submodule is at the pinned tag:
-
-```bash
-git -C corpora/combine describe --tags        # → v10.6.0
 ```
 
 ## Populating the forum corpus
@@ -194,7 +185,7 @@ Tools tab to drive `search_docs` / `fetch_doc` by hand.
 |---|---|---|---|
 | `combine-docs` | [Combine official docs](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest) | MkDocs `search_index.json` + GitHub raw bodies | 24-h TTL |
 | `combine-paper` | Combine paper (arXiv:2404.06614v2) | Single local text file split into sections | mtime + 24-h TTL |
-| `combine-code` | Combine source tree (`v10.6.0` submodule) | Per-file BM25 over Python / C++ headers / scripts / bin | dir mtime + 24-h TTL |
+| `combine-code` | Combine source tree at tag `v10.6.0` | Per-file BM25; tarball fetched from `codeload.github.com` on first search | 24-h TTL |
 | `combine-forum` | cms-talk Statistics category | Per-topic BM25 over scraped Discourse JSONs | dir mtime + 24-h TTL |
 
 The agent can introspect this list at runtime via the `docs://sources`
@@ -286,6 +277,18 @@ registry. Each entry's schema:
       "url_template":  "https://github.com/<owner>/<repo>/blob/main/{relpath}"
     },
 
+    // --- Remote GitHub tarball (code-style, no local checkout) ---
+    {
+      "id": "my-github-code",
+      "name": "My GitHub Code",
+      "source_type":   "github-tarball",
+      "repo_url":      "https://github.com/<owner>/<repo>",
+      "docs_site_url": "https://github.com/<owner>/<repo>",
+      "default_branch": "v1.0.0",                     // git ref (tag or branch)
+      "include_globs": ["**/*.py", "**/*.h"],
+      "url_template":  "https://github.com/<owner>/<repo>/blob/{ref}/{relpath}"
+    },
+
     // --- Local Discourse scrape (forum-style): one topic = one document ---
     {
       "id": "my-forum",
@@ -333,17 +336,16 @@ The two tools are deliberately small:
 ./.venv/bin/pytest tests/test_<m>.py    # one module
 ```
 
-Tests are fully offline. The MkDocs HTTP client is mocked; local
-backends use synthetic fixtures written into `tmp_path`. No CERN
+Tests are fully offline. HTTP clients (both the MkDocs one and the
+GitHub-tarball one) are mocked with synthetic fixtures. No CERN
 network access required to run the suite.
 
 ## Project layout
 
 ```
 combine-mcp/
-├── corpora/                                  ← data (paper, code submodule, forum)
+├── corpora/                                  ← local data (paper, forum)
 │   ├── paper_clean.txt
-│   ├── combine/                              ← git submodule v10.6.0
 │   └── forum/                                ← combine-mcp scrape output
 ├── src/combine_mcp/
 │   ├── cli.py                                ← `combine-mcp serve|scrape`
@@ -355,10 +357,11 @@ combine-mcp/
 │   ├── nomenclature.py                       ← the instructions blob
 │   └── tools/
 │       ├── search.py                         ← `search_docs` handler
-│       ├── fetch.py                          ← `fetch_doc` handler (4-way dispatch)
+│       ├── fetch.py                          ← `fetch_doc` handler (5-way dispatch)
 │       ├── _index.py                         ← DocsIndex + shared BM25 helpers
 │       ├── _paper_index.py                   ← PaperIndex
-│       ├── _code_index.py                    ← CodeIndex
+│       ├── _code_index.py                    ← CodeIndex (local tree)
+│       ├── _remote_code_index.py             ← RemoteCodeIndex (GitHub tarball)
 │       └── _forum_index.py                   ← ForumIndex
 └── tests/                                    ← offline test suite
 ```

@@ -69,9 +69,19 @@ class DocSource:
     - ``"local-paper"`` — BM25 over the sections of a single local
       plain-text file (the Combine paper); ``fetch_doc`` returns a
       section's body from disk.
-
-    Future values (``"local-files"``, ``"local-forum"``) will route to
-    other backends when the code and forum corpora are added.
+    - ``"local-files"`` — BM25 over a local directory tree, one file
+      per document (Combine source code as a submodule / vendored
+      copy). ``fetch_doc`` returns a file's body from disk.
+    - ``"local-forum"`` — BM25 over Discourse-shaped JSONs on disk
+      (cms-talk scraped topics). ``fetch_doc`` renders a thread or a
+      single post.
+    - ``"github-tarball"`` — BM25 over a GitHub source tree at a
+      pinned ref, downloaded on demand via ``codeload.github.com``.
+      Same public surface as ``"local-files"`` but no local checkout
+      required. Uses :attr:`default_branch` as the git ref (tag or
+      branch), :attr:`include_globs` to select indexed files, and
+      :attr:`url_template` (with ``{ref}`` and ``{relpath}``
+      placeholders) for citation URLs.
     """
 
     default_branch: str = "main"
@@ -204,12 +214,17 @@ def load_sources(config_path: str | Path) -> dict[str, DocSource]:
         try:
             source_type = item.get("source_type", "mkdocs")
             if source_type not in (
-                "mkdocs", "local-paper", "local-files", "local-forum",
+                "mkdocs",
+                "local-paper",
+                "local-files",
+                "local-forum",
+                "github-tarball",
             ):
                 msg = (
                     f"source {item.get('id')!r}: source_type "
                     f"{source_type!r} not supported (currently 'mkdocs', "
-                    "'local-paper', 'local-files', or 'local-forum')"
+                    "'local-paper', 'local-files', 'local-forum', or "
+                    "'github-tarball')"
                 )
                 raise ValueError(msg)
             if source_type == "mkdocs" and not item.get("search_index_url"):
@@ -241,6 +256,14 @@ def load_sources(config_path: str | Path) -> dict[str, DocSource]:
                 msg = (
                     f"source {item.get('id')!r}: source_type='local-forum' "
                     "requires local_root"
+                )
+                raise ValueError(msg)
+            if source_type == "github-tarball" and not item.get(
+                "include_globs",
+            ):
+                msg = (
+                    f"source {item.get('id')!r}: "
+                    "source_type='github-tarball' requires include_globs"
                 )
                 raise ValueError(msg)
             vcs_provider = item.get("vcs_provider", "github")

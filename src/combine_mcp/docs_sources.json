@@ -20,10 +20,10 @@
     {
       "id": "combine-code",
       "name": "CMS Combine — Source Code (v10.6.0)",
-      "source_type": "local-files",
+      "source_type": "github-tarball",
       "repo_url": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit",
       "docs_site_url": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/tree/v10.6.0",
-      "local_root": "../../corpora/combine",
+      "default_branch": "v10.6.0",
       "include_globs": [
         "python/**/*.py",
         "scripts/*.py",
@@ -31,7 +31,7 @@
         "interface/*.h",
         "bin/*.cpp"
       ],
-      "url_template": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/blob/v10.6.0/{relpath}"
+      "url_template": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/blob/{ref}/{relpath}"
     },
     {
       "id": "combine-forum",

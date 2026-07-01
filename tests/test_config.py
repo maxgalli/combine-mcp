@@ -242,6 +242,62 @@ class TestLocalFilesSource:
             load_sources(p)
 
 
+class TestGitHubTarballSource:
+    def test_github_tarball_loads(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"g","name":"G",'
+            '"repo_url":"https://github.com/x/y",'
+            '"docs_site_url":"https://github.com/x/y",'
+            '"source_type":"github-tarball",'
+            '"default_branch":"v1.0.0",'
+            '"include_globs":["**/*.py"],'
+            '"url_template":"https://github.com/x/y/blob/{ref}/{relpath}"}]}'
+        )
+        sources = load_sources(p)
+        s = sources["g"]
+        assert s.source_type == "github-tarball"
+        assert s.default_branch == "v1.0.0"
+        assert s.include_globs == ("**/*.py",)
+        assert s.url_template == (
+            "https://github.com/x/y/blob/{ref}/{relpath}"
+        )
+
+    def test_github_tarball_requires_include_globs(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"g","name":"G",'
+            '"repo_url":"https://github.com/x/y",'
+            '"docs_site_url":"https://github.com/x/y",'
+            '"source_type":"github-tarball",'
+            '"default_branch":"v1.0.0"}]}'
+        )
+        with pytest.raises(ValueError, match="include_globs"):
+            load_sources(p)
+
+    def test_github_tarball_does_not_require_local_root(
+        self, tmp_path: pytest.TempPathFactory,
+    ) -> None:
+        # This is the key distinction from local-files: github-tarball
+        # deliberately has no local_root.
+        p = tmp_path / "s.json"  # type: ignore[attr-defined]
+        p.write_text(
+            '{"sources":[{"id":"g","name":"G",'
+            '"repo_url":"https://github.com/x/y",'
+            '"docs_site_url":"https://github.com/x/y",'
+            '"source_type":"github-tarball",'
+            '"default_branch":"v1.0.0",'
+            '"include_globs":["**/*.py"]}]}'
+        )
+        # Must not raise
+        sources = load_sources(p)
+        assert sources["g"].local_root is None
+
+
 class TestBundledCombineCodeSource:
     """The bundled docs_sources.json should register combine-code."""
 
@@ -249,16 +305,16 @@ class TestBundledCombineCodeSource:
         sources = get_default_sources()
         assert "combine-code" in sources
 
-    def test_combine_code_points_at_submodule(self) -> None:
-        from pathlib import Path as _P
+    def test_combine_code_uses_github_tarball(self) -> None:
         src = get_default_sources()["combine-code"]
-        assert src.source_type == "local-files"
-        assert src.local_root is not None
-        assert _P(src.local_root).is_dir()
+        assert src.source_type == "github-tarball"
+        assert src.default_branch == "v10.6.0"
         assert src.include_globs  # non-empty
+        # github-tarball deliberately doesn't need a local_root.
+        assert src.local_root is None
 
-    def test_combine_code_url_template_at_v10_6_0(self) -> None:
+    def test_combine_code_url_template_uses_ref_placeholder(self) -> None:
         src = get_default_sources()["combine-code"]
         assert src.url_template
-        assert "v10.6.0" in src.url_template
+        assert "{ref}" in src.url_template
         assert "{relpath}" in src.url_template
