@@ -4,6 +4,13 @@ An MCP server exposing the CMS Combine corpus to any MCP-aware LLM client
 (Claude Desktop, Claude Code, opencode, Cursor, …). One server, four
 sources, two tools, no embeddings.
 
+> **Want the full assistant** (skill + execution)? See
+> [`combine-assistant`](https://github.com/maxgalli/combine-assistant),
+> which bundles this retrieval server with the
+> [`combine-run-mcp`](https://github.com/maxgalli/combine-run-mcp)
+> execution server and the routing skill. This repo is just the
+> retrieval MCP.
+
 | | |
 |---|---|
 | Corpus | Combine docs, paper, source code, cms-talk forum |
