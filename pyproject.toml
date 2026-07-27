@@ -7,11 +7,12 @@ name = "combine-mcp"
 authors = [
   { name = "Giovanni Guerrieri", email = "giorgio.ravelli66@gmail.com" },
 ]
-description = "MCP Server for searching multiple MkDocs-based CERN documentation sites"
+description = "MCP server exposing the CMS Combine corpus (docs, paper, source code, forums) for retrieval by any MCP client"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-version = "0.1.0"
+# Single-sourced from src/combine_mcp/__init__.py via [tool.hatch] below.
+dynamic = ["version"]
 requires-python = ">=3.10"
 classifiers = [
   "Development Status :: 1 - Planning",

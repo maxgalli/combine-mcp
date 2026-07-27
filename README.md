@@ -1,7 +1,7 @@
 # combine-mcp
 
 An MCP server exposing the CMS Combine corpus to any MCP-aware LLM client
-(Claude Desktop, Claude Code, opencode, Cursor, …). One server, four
+(Claude Desktop, Claude Code, opencode, Cursor, …). One server, five
 sources, two tools, no embeddings.
 
 > **Want the full assistant** (skill + execution)? See
@@ -13,11 +13,17 @@ sources, two tools, no embeddings.
 
 | | |
 |---|---|
-| Corpus | Combine docs, paper, source code, cms-talk forum |
+| Corpus | Combine docs, paper, source code, cms-talk forum, HyperNews forum (archived) |
 | Retrieval | BM25 in-memory (via `rank_bm25`) |
 | Transport | stdio (default) or streamable HTTP |
-| Auth | none — all sources are public or local |
+| Auth | none in the server itself, but the **forum corpora are CMS-restricted** — see [Corpus & access](#corpus--access) |
 | Read-only | yes; no write tools |
+
+> **Access note.** The forum sources (`combine-forum`, `combine-hypernews`)
+> are scraped from **CERN-authenticated** forums and are **not public**.
+> They live in a private CMS-restricted repo and must not be committed here.
+> The public deployment is restricted to the CERN network. See
+> [Corpus & access](#corpus--access).
 
 ## Architecture
 
@@ -42,28 +48,44 @@ LLM client                       combine-mcp serve
    │     │     sections                   │
    │     │                                │
    │     ├── combine-code ────────────────┤
-   │     │     submodule walk,            │
-   │     │     one file = one document    │
-   │     │                                │
-   │     └── combine-forum ───────────────┘
-   │           scraped Discourse JSONs,
+   │     │     GitHub tarball @ v10.6.0,   │
+   │     │     one file = one document     │
+   │     │                                 │
+   │     ├── combine-forum ───────────────┤
+   │     │     cms-talk Discourse JSONs,   │
+   │     │     one topic = one document    │
+   │     │                                 │
+   │     └── combine-hypernews ───────────┘
+   │           archived HyperNews JSONs,
    │           one topic = one document
 ```
 
-The corpus assets are vendored under `corpora/`:
+## Corpus & access
 
-```
-corpora/
-├── paper_clean.txt           ← cleaned text of arXiv:2404.06614v2
-└── forum/                    ← Discourse scrape (combine-mcp scrape)
-    ├── topic_*.json
-    ├── topic_*.txt
-    └── .manifest.json
-```
+The five sources are backed differently, and — importantly — **not all of
+the corpus is public**:
 
-The Combine source tree (`combine-code`) is **fetched on demand** from
-GitHub at the pinned tag (`v10.6.0`); it's not vendored locally, so
-there's no submodule to init.
+| Source | Where its data comes from | Public? |
+|---|---|---|
+| `combine-docs` | fetched live from the published MkDocs `search_index.json` + GitHub raw bodies | yes |
+| `combine-code` | GitHub tarball at pinned tag `v10.6.0`, fetched on demand | yes |
+| `combine-paper` | `corpora/paper_clean.txt`, vendored here (arXiv:2404.06614v2) | yes |
+| `combine-forum` | cms-talk Statistics category (Discourse) | **no — CERN-authenticated** |
+| `combine-hypernews` | archived HyperNews forums (higgs-combination, phys-stat; pre-2022) | **no — CERN-authenticated** |
+
+The forum corpora are scraped from CERN SSO–gated forums, so they are
+**not vendored in this public repo**. They live in a private,
+CMS-restricted GitLab repo,
+[`cms-analysis/general/combine-mcp-corpus`](https://gitlab.cern.ch/cms-analysis/general/combine-mcp-corpus)
+(which also holds the scrapers), and are fetched at deploy time — see
+[Deployment](#deployment). Locally, only `corpora/paper_clean.txt` is
+present after a clone; the `corpora/forum/` and `corpora/hypernews/`
+directories are gitignored and must be pulled from that private repo for
+the forum sources to work.
+
+`combine-hypernews` is the **lower-priority** forum source: it predates
+2022 (cms-talk) and may reference older Combine versions — prefer
+`combine-forum`, fall back to HyperNews.
 
 ## Installation
 
@@ -74,35 +96,38 @@ uv venv .venv
 uv pip install --python .venv -e .
 ```
 
-## Populating the forum corpus
+## Getting the forum corpus for local dev
 
-The `combine-docs`, `combine-paper`, and `combine-code` sources are
-ready immediately after the clone. The `combine-forum` source is empty
-until you run the scraper:
+`combine-docs`, `combine-code`, and `combine-paper` work immediately
+after a clone (fetched live / vendored). The two forum sources need the
+CMS-restricted corpus, which is **not** in this repo. For local
+development, clone the private corpus repo and copy the forum dirs into
+`corpora/` (both are gitignored here):
 
 ```bash
-# 1. Grab a cms-talk session cookie from your browser:
-#    devtools → Application → Cookies → cms-talk.web.cern.ch
-#    Copy the values of BOTH `_forum_session` and `_t`.
+git clone https://gitlab.cern.ch/cms-analysis/general/combine-mcp-corpus.git /tmp/corpus
+cp -a /tmp/corpus/forum /tmp/corpus/hypernews corpora/
+```
+
+In the deployed server this happens automatically — see
+[Deployment](#deployment).
+
+### Refreshing the forum data
+
+The cms-talk (`combine-forum`) scraper ships here as `combine-mcp scrape`
+(needs a `DISCOURSE_COOKIE` copied from your browser session — devtools →
+Application → Cookies → `cms-talk.web.cern.ch`, both `_forum_session` and
+`_t`):
+
+```bash
 export DISCOURSE_COOKIE='_forum_session=<v>; _t=<v>'
-
-# 2. Smoke test with a small limit:
-./.venv/bin/combine-mcp scrape --limit 3
-
-# 3. Run the full scrape (~20-30 min the first time; incremental afterwards):
-./.venv/bin/combine-mcp scrape
+./.venv/bin/combine-mcp scrape           # incremental; --full to rescrape all
 ```
 
-Subsequent runs are incremental — only topics whose `last_posted_at`
-has changed are re-fetched. The manifest at `corpora/forum/.manifest.json`
-tracks this state.
-
-Alternatively, if you have a recent scrape elsewhere (e.g., from a
-sibling `combine-bot` repo), you can `rsync` it in:
-
-```bash
-rsync -avh ~/path/to/scraped/forum/ corpora/forum/
-```
+The HyperNews (`combine-hypernews`) scraper lives in the corpus repo
+(`scripts/scrape_hypernews.py`) — that archive is regenerated rarely.
+**Regenerated corpora are committed to the private corpus repo, never
+here.**
 
 ## Usage
 
@@ -158,7 +183,7 @@ other clients consult their MCP docs — the schema is the same:
 ```
 
 Restart the client. The agent now has `search_docs` and `fetch_doc`
-available on the four Combine sources.
+available on the five Combine sources.
 
 ### Inspector (preview without an LLM client)
 
@@ -178,7 +203,7 @@ Tools tab to drive `search_docs` / `fetch_doc` by hand.
 
 ### Fetch modes
 
-| `mode` | All sources | `combine-forum` only |
+| `mode` | All sources | forum sources (`combine-forum`, `combine-hypernews`) |
 |---|---|---|
 | `markdown` (default) | full body / section / file | full thread transcript |
 | `outline` | `#`/`##`/`###` headings (docs/paper) or top-level defs (code) | list of posts: `{post_number, username, char_count, is_accepted_answer}` |
@@ -193,7 +218,8 @@ Tools tab to drive `search_docs` / `fetch_doc` by hand.
 | `combine-docs` | [Combine official docs](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest) | MkDocs `search_index.json` + GitHub raw bodies | 24-h TTL |
 | `combine-paper` | Combine paper (arXiv:2404.06614v2) | Single local text file split into sections | mtime + 24-h TTL |
 | `combine-code` | Combine source tree at tag `v10.6.0` | Per-file BM25; tarball fetched from `codeload.github.com` on first search | 24-h TTL |
-| `combine-forum` | cms-talk Statistics category | Per-topic BM25 over scraped Discourse JSONs | dir mtime + 24-h TTL |
+| `combine-forum` | cms-talk Statistics category (2022→) | Per-topic BM25 over scraped Discourse JSONs | dir mtime + 24-h TTL |
+| `combine-hypernews` | archived HyperNews forums (pre-2022) — **lower priority** | Per-topic BM25 over scraped JSONs | dir mtime + 24-h TTL |
 
 The agent can introspect this list at runtime via the `docs://sources`
 MCP resource.
@@ -313,6 +339,52 @@ registry. Each entry's schema:
 Relative paths in `local_path` / `local_root` are resolved against the
 JSON config file's directory. Absolute paths pass through unchanged.
 
+## Deployment
+
+Deployed on CERN PaaS (OpenShift) over streamable HTTP, built from this
+repo's `Dockerfile`. Two env vars make the private forum corpus available
+at runtime without baking it — or its access token — into the image:
+
+- **`COMBINE_MCP_CORPORA_DIR`** (set in the `Dockerfile` to `/app/corpora`):
+  an explicit corpus directory. `config.py` rebases the bundled
+  `../../corpora/...` source paths onto it. Those relative paths only
+  resolve from the source tree; once the package is `pip install`ed they
+  point at a bogus site-packages dir, so this override is what makes the
+  local sources load in the container at all.
+- **`COMBINE_MCP_CORPUS_URL`** (a runtime **secret**): a full authenticated
+  clone URL for the private corpus repo, e.g.
+  `https://<deploy-token-user>:<token>@gitlab.cern.ch/cms-analysis/general/combine-mcp-corpus.git`.
+  `docker-entrypoint.sh` clones it into `COMBINE_MCP_CORPORA_DIR` at
+  startup (the token never touches the image or the logs). If it's unset
+  or the clone fails, the server still starts — only the forum sources are
+  unavailable.
+
+The public arXiv paper (`combine-paper`) is baked into the image; the
+CERN-authenticated forum corpora are cloned at startup as above.
+
+Provide the secret to the deployment and restrict the route to the CERN
+network (it serves CERN-authenticated content):
+
+```bash
+oc create secret generic combine-mcp-corpus \
+  --from-literal=COMBINE_MCP_CORPUS_URL='https://<user>:<token>@gitlab.cern.ch/cms-analysis/general/combine-mcp-corpus.git'
+oc set env deploy/combine-mcp-git --from=secret/combine-mcp-corpus
+```
+
+## Releasing
+
+The version is single-sourced in `src/combine_mcp/__init__.py`
+(`__version__`); `pyproject.toml` reads it via hatch (`dynamic =
+["version"]`), so there is only one place to bump. To cut a release:
+
+1. Bump `__version__` in `src/combine_mcp/__init__.py`, commit.
+2. Tag it (matching the version):
+   `git tag -a vX.Y.Z -m "combine-mcp vX.Y.Z"`.
+3. Push branch and tag: `git push origin main && git push origin vX.Y.Z`.
+
+The PaaS app builds from the branch (it rebuilds on push), so the tag is
+for version hygiene / reproducibility, not a deploy pin.
+
 ## Design principles ([arcade.dev](https://www.arcade.dev/patterns) patterns)
 
 The two tools are deliberately small:
@@ -351,9 +423,11 @@ network access required to run the suite.
 
 ```
 combine-mcp/
-├── corpora/                                  ← local data (paper, forum)
-│   ├── paper_clean.txt
-│   └── forum/                                ← combine-mcp scrape output
+├── corpora/                                  ← paper_clean.txt only (public, vendored);
+│   └── paper_clean.txt                           forum/ & hypernews/ are gitignored and
+│                                                 fetched from the private corpus repo
+├── Dockerfile                                ← PaaS image (fetches corpus at startup)
+├── docker-entrypoint.sh                      ← clones private forum corpus on boot
 ├── src/combine_mcp/
 │   ├── cli.py                                ← `combine-mcp serve|scrape`
 │   ├── server.py                             ← FastMCP setup, lifespan, _build_index
