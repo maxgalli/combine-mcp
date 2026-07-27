@@ -41,6 +41,15 @@
       "docs_site_url": "https://cms-talk.web.cern.ch",
       "local_root": "../../corpora/forum",
       "include_globs": ["topic_*.json"]
+    },
+    {
+      "id": "combine-hypernews",
+      "name": "CMS Combine — HyperNews Q&A (archived, pre-2022)",
+      "source_type": "local-forum",
+      "repo_url": "https://hypernews.cern.ch/HyperNews/CMS/get/higgs-combination.html",
+      "docs_site_url": "https://hypernews.cern.ch/HyperNews/CMS",
+      "local_root": "../../corpora/hypernews",
+      "include_globs": ["*/topic_*.json"]
     }
   ]
 }

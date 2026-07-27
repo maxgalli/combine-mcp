@@ -44,20 +44,35 @@ Backend: BM25 over per-file documents from the pinned submodule.
 
 ### ``combine-forum`` — cms-talk Q&A
 Scraped threads from the CMS Statistics category on
-https://cms-talk.web.cern.ch. Best for: error messages, "I'm getting
-this warning, what does it mean", workarounds that haven't made it
-into the docs, real-world examples of running into edge cases.
-Backend: BM25 over local Discourse JSONs.
+https://cms-talk.web.cern.ch (the current forum, 2022 onward). Best
+for: error messages, "I'm getting this warning, what does it mean",
+workarounds that haven't made it into the docs, real-world examples of
+running into edge cases. Backend: BM25 over local Discourse JSONs.
+
+### ``combine-hypernews`` — HyperNews Q&A (archived, pre-2022)
+The *older* CMS forums (HyperNews ``higgs-combination`` and
+``phys-stat``), used until 2022 before cms-talk. Same kind of content
+as ``combine-forum`` — questions, errors, expert replies — but older.
+**Lower priority than ``combine-forum``:** prefer cms-talk, and consult
+HyperNews only when cms-talk comes up short. Because these threads
+predate 2022, they may reference **older Combine versions and outdated
+options/behaviour** — weight them accordingly and cross-check anything
+version-sensitive against the docs or code. Backend: BM25 over local
+JSONs.
 
 ## Which source to ask first
 
 - Concrete ``combine`` CLI question or option lookup → ``combine-docs``.
 - "Why does it work this way?" / methodology → ``combine-paper``.
 - "What does the code actually do here?" → ``combine-code``.
-- "I'm seeing this error/warning" / "anyone else hit this?" → ``combine-forum``.
+- "I'm seeing this error/warning" / "anyone else hit this?" →
+  ``combine-forum`` first; if nothing relevant, then
+  ``combine-hypernews`` (older, may reference outdated versions).
 
 When the first source comes up short, fall through to the next most
-likely one — the sources are complementary, not redundant.
+likely one — the sources are complementary, not redundant. For forum
+questions the order is cms-talk (``combine-forum``) then the archived
+``combine-hypernews``.
 
 ## Tools
 

@@ -181,7 +181,12 @@ class ForumIndex:
         return f"{self.docs_site_url}/t/{topic_id}"
 
     def _post_url(self, topic: dict[str, Any], post_number: int) -> str:
-        """Discourse per-post URL: ``<site>/t/<id>/<n>``."""
+        """Per-post URL. Prefer a URL stored on the post itself (e.g.
+        HyperNews' nested message URL); otherwise Discourse-style
+        ``<topic_url>/<n>``."""
+        for post in topic.get("posts") or []:
+            if post.get("post_number") == post_number and post.get("url"):
+                return str(post["url"])
         return f"{self._topic_url(topic).rstrip('/')}/{post_number}"
 
     async def ensure_fresh(
@@ -335,7 +340,15 @@ class ForumIndex:
             raw = id_or_url.strip()
             if not raw:
                 return None
-            # Pull the numeric id out of /t/<id> or /t/<id>/<post>.
+            # Match by the topic's stored URL first. This handles sources
+            # whose URLs are not Discourse-shaped (e.g. HyperNews, whose
+            # URLs have no /t/<id> form). search() returns exactly this URL.
+            raw_norm = raw.rstrip("/")
+            for topic in self.topics:
+                turl = topic.get("url")
+                if turl and str(turl).rstrip("/") == raw_norm:
+                    return topic
+            # Discourse-style: pull the numeric id out of /t/<id>[/<post>].
             m = re.search(r"/t/(\d+)", raw)
             if m:
                 wanted = int(m.group(1))
