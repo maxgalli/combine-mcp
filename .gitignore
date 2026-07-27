@@ -17,3 +17,10 @@ htmlcov/
 .pixi/
 
 .DS_Store
+
+# SSO-gated forum corpora — must NOT live in this public repo. They are
+# scraped from CERN-authenticated forums (cms-talk, HyperNews) and belong
+# in a private CMS-restricted GitLab repo, fetched at build/deploy time.
+# (corpora/paper_clean.txt is the public arXiv paper and stays tracked.)
+corpora/forum/
+corpora/hypernews/
