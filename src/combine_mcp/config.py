@@ -12,6 +12,7 @@ auth-config dataclass and Secret-Injection helpers.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
@@ -172,12 +173,26 @@ def _resolve_local_path(
     lets the bundled JSON ship with a relative path (e.g.
     ``"../../corpora/paper_clean.txt"``) and stay portable across
     machines, while user-supplied configs can still use absolute paths.
+
+    Deployment override: if ``COMBINE_MCP_CORPORA_DIR`` is set and the
+    relative path goes through a ``corpora/`` segment, the part *after*
+    ``corpora/`` is rebased onto that directory. The bundled
+    ``../../corpora/...`` paths only resolve sanely when running from the
+    source tree (repo root); once the package is ``pip install``ed they
+    resolve to a bogus site-packages-adjacent dir. Setting this env var
+    to an explicit, writable corpus directory fixes that for containers
+    without touching the JSON. Local/source-tree runs leave it unset and
+    behave exactly as before.
     """
     if raw is None:
         return None
     p = Path(raw)
     if p.is_absolute():
         return str(p)
+    base = os.environ.get("COMBINE_MCP_CORPORA_DIR")
+    if base and "corpora" in p.parts:
+        tail = p.parts[p.parts.index("corpora") + 1:]
+        return str(Path(base).joinpath(*tail).resolve())
     return str((config_dir / p).resolve())
 
 
