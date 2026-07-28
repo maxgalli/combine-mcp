@@ -114,20 +114,13 @@ In the deployed server this happens automatically — see
 
 ### Refreshing the forum data
 
-The cms-talk (`combine-forum`) scraper ships here as `combine-mcp scrape`
-(needs a `DISCOURSE_COOKIE` copied from your browser session — devtools →
-Application → Cookies → `cms-talk.web.cern.ch`, both `_forum_session` and
-`_t`):
-
-```bash
-export DISCOURSE_COOKIE='_forum_session=<v>; _t=<v>'
-./.venv/bin/combine-mcp scrape           # incremental; --full to rescrape all
-```
-
-The HyperNews (`combine-hypernews`) scraper lives in the corpus repo
-(`scripts/scrape_hypernews.py`) — that archive is regenerated rarely.
-**Regenerated corpora are committed to the private corpus repo, never
-here.**
+Both scrapers live in the
+[corpus repo](https://gitlab.cern.ch/cms-analysis/general/combine-mcp-corpus),
+alongside the data they produce — `scripts/scrape_cms_talk.py`
+(`combine-forum`; needs `httpx` + a `DISCOURSE_COOKIE`) and
+`scripts/scrape_hypernews.py` (`combine-hypernews`). Regenerated corpora
+are committed **there** and picked up here at deploy — the forum corpus
+is never scraped into, or committed to, this (public) repo.
 
 ## Usage
 
@@ -234,39 +227,11 @@ MCP resource.
 
 ```
 combine-mcp serve [--transport stdio|streamable-http] [--host HOST] [--port PORT] [--config PATH]
-combine-mcp scrape [--output PATH] [--full] [--sleep SECONDS] [--limit N]
 ```
 
-`scrape` runs the cms-talk scraper:
-
-- Incremental by default — only refetches topics whose latest reply
-  changed.
-- `--full` rescrapes every topic (catches silent edits to old posts).
-- `--limit N` is a debug knob — stops after N topics.
-
-Cookies expire when your CERN SSO session does (typically days to
-weeks). If you start getting 403s mid-run, re-grab and re-export
-`DISCOURSE_COOKIE`; the manifest is incremental so the next run resumes
-where the failed one stopped.
-
-## Periodic scraping (cron)
-
-For an unattended deployment, refresh the forum every two days:
-
-```cron
-0 4 */2 * * /usr/bin/env -i HOME=$HOME bash -c \
-    'source $HOME/.combine-mcp.env && \
-     cd /opt/combine-mcp && \
-     ./.venv/bin/combine-mcp scrape \
-     >> /var/log/combine-mcp/scrape.log 2>&1'
-```
-
-Where `~/.combine-mcp.env` is a `chmod 600` file containing your
-`DISCOURSE_COOKIE` export. Cron runs with a stripped env, so the wrapper
-sources the file explicitly.
-
-For a personal Mac, skip cron — just run `combine-mcp scrape` by hand
-when you want fresh data.
+The forum scrapers are not part of this package — they live in the
+[corpus repo](https://gitlab.cern.ch/cms-analysis/general/combine-mcp-corpus)
+(see [Refreshing the forum data](#refreshing-the-forum-data)).
 
 ## Configuration
 
@@ -429,10 +394,9 @@ combine-mcp/
 ├── Dockerfile                                ← PaaS image (fetches corpus at startup)
 ├── docker-entrypoint.sh                      ← clones private forum corpus on boot
 ├── src/combine_mcp/
-│   ├── cli.py                                ← `combine-mcp serve|scrape`
+│   ├── cli.py                                ← `combine-mcp serve`
 │   ├── server.py                             ← FastMCP setup, lifespan, _build_index
 │   ├── config.py                             ← DocSource + JSON loading
-│   ├── scrape.py                             ← cms-talk Discourse scraper
 │   ├── docs_sources.json                     ← the source registry
 │   ├── resources.py                          ← docs://sources MCP resource
 │   ├── nomenclature.py                       ← the instructions blob

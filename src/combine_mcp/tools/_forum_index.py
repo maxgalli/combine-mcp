@@ -1,10 +1,10 @@
 """BM25 index over a local tree of Discourse-shaped forum JSONs.
 
-Used for cms-talk threads scraped by :mod:`combine_mcp.scrape`. Each
-``topic_*.json`` file becomes one BM25 document — title + rendered
-transcript of all posts. The matching ``.txt`` mirrors that the
-scraper writes alongside are ignored here; we re-render from JSON so
-the indexed body's structure is consistent regardless of the scraper
+Used for cms-talk and HyperNews threads (scraped into the private
+combine-mcp-corpus repo). Each ``topic_*.json`` file becomes one BM25
+document — title + rendered transcript of all posts. Any ``.txt``
+mirrors alongside are ignored here; we re-render from JSON so the
+indexed body's structure is consistent regardless of the scraper
 version.
 
 Mirrors the :class:`combine_mcp.tools._index.DocsIndex` interface

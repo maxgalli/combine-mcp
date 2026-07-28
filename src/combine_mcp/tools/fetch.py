@@ -304,7 +304,7 @@ async def _fetch_forum_thread(
         return format_error(exc, recovery=[
             f"The forum corpus for '{source_norm}' could not be loaded.",
             "Verify the local_root directory exists and contains "
-            "topic_*.json files (run `combine-mcp scrape` to populate).",
+            "topic_*.json files.",
         ])
 
     # Outline mode — list of post summaries.
