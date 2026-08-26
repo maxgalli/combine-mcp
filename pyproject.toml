@@ -31,7 +31,11 @@ classifiers = [
   "Typing :: Typed",
 ]
 dependencies = [
-  "mcp>=1.0",
+  # mcp 2.x renamed FastMCP -> MCPServer and changed other APIs, which breaks
+  # server.py at import time. Pinned to v1 until the code is migrated; the
+  # Dockerfile installs straight from this file (not uv.lock), so an open upper
+  # bound here is what put mcp 2.0.0 into the image and crash-looped the pod.
+  "mcp>=1.0,<2",
   "httpx>=0.27",
   "rank-bm25>=0.2",
 ]
