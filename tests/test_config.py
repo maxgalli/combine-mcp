@@ -308,7 +308,7 @@ class TestBundledCombineCodeSource:
     def test_combine_code_uses_github_tarball(self) -> None:
         src = get_default_sources()["combine-code"]
         assert src.source_type == "github-tarball"
-        assert src.default_branch == "v10.6.0"
+        assert src.default_branch == "v11.1.0"
         assert src.include_globs  # non-empty
         # github-tarball deliberately doesn't need a local_root.
         assert src.local_root is None

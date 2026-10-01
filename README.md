@@ -48,7 +48,7 @@ LLM client                       combine-mcp serve
    │     │     sections                   │
    │     │                                │
    │     ├── combine-code ────────────────┤
-   │     │     GitHub tarball @ v10.6.0,   │
+   │     │     GitHub tarball @ v11.1.0,   │
    │     │     one file = one document     │
    │     │                                 │
    │     ├── combine-forum ───────────────┤
@@ -68,7 +68,7 @@ the corpus is public**:
 | Source | Where its data comes from | Public? |
 |---|---|---|
 | `combine-docs` | fetched live from the published MkDocs `search_index.json` + GitHub raw bodies | yes |
-| `combine-code` | GitHub tarball at pinned tag `v10.6.0`, fetched on demand | yes |
+| `combine-code` | GitHub tarball at pinned tag `v11.1.0`, fetched on demand | yes |
 | `combine-paper` | `corpora/paper_clean.txt`, vendored here (arXiv:2404.06614v2) | yes |
 | `combine-forum` | cms-talk Statistics category (Discourse) | **no — CERN-authenticated** |
 | `combine-hypernews` | archived HyperNews forums (higgs-combination, phys-stat; pre-2022) | **no — CERN-authenticated** |
@@ -210,7 +210,7 @@ Tools tab to drive `search_docs` / `fetch_doc` by hand.
 |---|---|---|---|
 | `combine-docs` | [Combine official docs](https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest) | MkDocs `search_index.json` + GitHub raw bodies | 24-h TTL |
 | `combine-paper` | Combine paper (arXiv:2404.06614v2) | Single local text file split into sections | mtime + 24-h TTL |
-| `combine-code` | Combine source tree at tag `v10.6.0` | Per-file BM25; tarball fetched from `codeload.github.com` on first search | 24-h TTL |
+| `combine-code` | Combine source tree at tag `v11.1.0` | Per-file BM25; tarball fetched from `codeload.github.com` on first search | 24-h TTL |
 | `combine-forum` | cms-talk Statistics category (2022→) | Per-topic BM25 over scraped Discourse JSONs | dir mtime + 24-h TTL |
 | `combine-hypernews` | archived HyperNews forums (pre-2022) — **lower priority** | Per-topic BM25 over scraped JSONs | dir mtime + 24-h TTL |
 

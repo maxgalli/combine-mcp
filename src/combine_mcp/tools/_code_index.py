@@ -2,7 +2,7 @@
 
 Used for the Combine source code: walks an ``include_globs`` list under
 a configured ``local_root`` (e.g. ``corpora/combine`` for the pinned
-v10.6.0 submodule), indexes the title + body of each file with BM25,
+v11.1.0 submodule), indexes the title + body of each file with BM25,
 and returns per-file citation URLs built from a configurable
 ``url_template`` (typically a GitHub blob URL).
 

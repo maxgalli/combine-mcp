@@ -119,7 +119,7 @@ class DocSource:
     URLs. ``{relpath}`` is substituted with each file's POSIX path
     relative to :attr:`local_root`. Example::
 
-        "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/blob/v10.6.0/{relpath}"
+        "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/blob/v11.1.0/{relpath}"
     """
 
     @property

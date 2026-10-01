@@ -47,7 +47,7 @@ def register(mcp: FastMCP) -> None:
                 - ``"combine-docs"`` (default) — official MkDocs site
                 - ``"combine-paper"`` — methodology paper
                   (arXiv:2404.06614)
-                - ``"combine-code"`` — source tree (pinned to v10.6.0)
+                - ``"combine-code"`` — source tree (pinned to v11.1.0)
                 - ``"combine-forum"`` — cms-talk Q&A threads
                 See the ``docs://sources`` resource or the server
                 instructions for guidance on which source to pick.

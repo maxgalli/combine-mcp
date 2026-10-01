@@ -19,11 +19,11 @@
     },
     {
       "id": "combine-code",
-      "name": "CMS Combine — Source Code (v10.6.0)",
+      "name": "CMS Combine — Source Code (v11.1.0)",
       "source_type": "github-tarball",
       "repo_url": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit",
-      "docs_site_url": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/tree/v10.6.0",
-      "default_branch": "v10.6.0",
+      "docs_site_url": "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit/tree/v11.1.0",
+      "default_branch": "v11.1.0",
       "include_globs": [
         "python/**/*.py",
         "scripts/*.py",

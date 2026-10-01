@@ -45,9 +45,9 @@ def _tarball_url(repo_url: str, ref: str) -> str:
 
         _tarball_url(
             "https://github.com/cms-analysis/HiggsAnalysis-CombinedLimit",
-            "v10.6.0",
+            "v11.1.0",
         )
-        # -> "https://codeload.github.com/cms-analysis/HiggsAnalysis-CombinedLimit/tar.gz/v10.6.0"
+        # -> "https://codeload.github.com/cms-analysis/HiggsAnalysis-CombinedLimit/tar.gz/v11.1.0"
     """
     parsed = urlparse(repo_url)
     path = parsed.path.strip("/")

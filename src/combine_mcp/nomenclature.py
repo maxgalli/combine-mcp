@@ -36,7 +36,7 @@ model, why an option exists, citations. Use this when the docs
 describe *what* a flag does but you need to know *why* or what it
 formally means. Backend: BM25 over local sections.
 
-### ``combine-code`` — the source code (pinned to v10.6.0)
+### ``combine-code`` — the source code (pinned to v11.1.0)
 The Python and C++ implementation. Best for: questions like "what
 exactly does this option do under the hood", "what code path is
 triggered by X", "is feature Y implemented or only documented".
