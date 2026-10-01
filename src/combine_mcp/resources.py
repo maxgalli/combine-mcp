@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP  # noqa: TC002
+from mcp.server.mcpserver import MCPServer  # noqa: TC002
 
 from combine_mcp.config import DocSource
 
@@ -36,11 +36,11 @@ def _format_sources(sources: dict[str, DocSource]) -> str:
     return "\n".join(lines)
 
 
-def register(mcp: FastMCP, sources: dict[str, DocSource]) -> None:
+def register(mcp: MCPServer, sources: dict[str, DocSource]) -> None:
     """Register documentation resources with the MCP server.
 
     Args:
-        mcp: The FastMCP instance to register the resource on.
+        mcp: The MCPServer instance to register the resource on.
         sources: The source registry loaded by the server. The list is
             captured by closure at registration time, so it is stable
             for the lifetime of the server.

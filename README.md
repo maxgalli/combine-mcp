@@ -395,7 +395,7 @@ combine-mcp/
 ├── docker-entrypoint.sh                      ← clones private forum corpus on boot
 ├── src/combine_mcp/
 │   ├── cli.py                                ← `combine-mcp serve`
-│   ├── server.py                             ← FastMCP setup, lifespan, _build_index
+│   ├── server.py                             ← MCPServer setup, lifespan, _build_index
 │   ├── config.py                             ← DocSource + JSON loading
 │   ├── docs_sources.json                     ← the source registry
 │   ├── resources.py                          ← docs://sources MCP resource

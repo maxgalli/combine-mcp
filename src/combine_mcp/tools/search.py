@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from mcp.server.fastmcp import Context, FastMCP  # noqa: TC002
+from mcp.server.mcpserver import Context, MCPServer  # noqa: TC002
 
 from combine_mcp.config import (
     format_sources_guide,
@@ -22,7 +22,7 @@ from combine_mcp.tools._helpers import format_error
 _MAX_LIMIT = 25
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: MCPServer) -> None:
     """Register the search tool."""
 
     @mcp.tool()

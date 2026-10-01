@@ -21,7 +21,7 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
-from mcp.server.fastmcp import Context, FastMCP  # noqa: TC002
+from mcp.server.mcpserver import Context, MCPServer  # noqa: TC002
 
 from combine_mcp.config import (
     DocSource,  # noqa: TC001
@@ -415,7 +415,7 @@ def _build_raw_file_url(src: DocSource, path: str) -> str:
     )
 
 
-def register(mcp: FastMCP) -> None:
+def register(mcp: MCPServer) -> None:
     """Register the fetch tool."""
 
     @mcp.tool()

@@ -1,6 +1,6 @@
 """Instructions blob describing the corpus this MCP exposes.
 
-Embedded into the FastMCP ``instructions`` string by
+Embedded into the MCPServer ``instructions`` string by
 :func:`combine_mcp.server._build_instructions`. Kept here so the
 agent-facing description of the four-source corpus lives in one
 place.

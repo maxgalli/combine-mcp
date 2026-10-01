@@ -113,7 +113,7 @@ def mock_ctx(
     sample_sources: dict[str, DocSource],
     sample_indices: dict[str, DocsIndex],
 ) -> MagicMock:
-    """Mock FastMCP Context with the multi-source lifespan dict."""
+    """Mock MCPServer Context with the multi-source lifespan dict."""
     ctx: MagicMock = MagicMock()
     ctx.request_context.lifespan_context = {
         "http": mock_http,

@@ -1,11 +1,11 @@
-"""FastMCP server setup for the Combine docs MCP."""
+"""MCPServer setup for the Combine docs MCP."""
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -84,7 +84,7 @@ def _build_index(
 
 
 def _build_instructions(sources: dict[str, DocSource]) -> str:
-    """Build the FastMCP `instructions` string from the loaded sources.
+    """Build the MCPServer `instructions` string from the loaded sources.
 
     The instructions enumerate the available source IDs so the agent can
     pick one without an extra resource read.
@@ -105,15 +105,14 @@ def _build_instructions(sources: dict[str, DocSource]) -> str:
 
 
 def _make_mcp(
-    host: str = "127.0.0.1",
-    port: int = 8000,
     config_path: Path | None = None,
-) -> FastMCP:
-    """Build and return a configured FastMCP instance.
+) -> MCPServer:
+    """Build and return a configured MCPServer instance.
+
+    Transport settings (host, port) are not part of the server in mcp 2.x;
+    :func:`serve` passes them to ``run()``.
 
     Args:
-        host: Bind address (passed to FastMCP for HTTP transport).
-        port: Port (passed to FastMCP for HTTP transport).
         config_path: Optional path to a custom ``docs_sources.json``.
             When omitted, the package-bundled file is used.
     """
@@ -123,7 +122,7 @@ def _make_mcp(
     )
 
     @asynccontextmanager
-    async def _lifespan(_server: FastMCP) -> AsyncGenerator[dict[str, Any], None]:
+    async def _lifespan(_server: MCPServer) -> AsyncGenerator[dict[str, Any], None]:
         """Open a shared httpx client and one lazy BM25 index per source.
 
         Indices are not populated here - the first ``search_docs`` call
@@ -146,12 +145,10 @@ def _make_mcp(
                 "sources": sources,
             }
 
-    mcp = FastMCP(
+    mcp = MCPServer(
         "combine-mcp",
         lifespan=_lifespan,
         instructions=_build_instructions(sources),
-        host=host,
-        port=port,
     )
 
     for _module in [search, fetch]:
@@ -177,5 +174,11 @@ def serve(
         port: Port for HTTP transport (default 8000).
         config_path: Optional path to a custom ``docs_sources.json``.
     """
-    mcp = _make_mcp(host=host, port=port, config_path=config_path)
-    mcp.run(transport=transport)
+    mcp = _make_mcp(config_path=config_path)
+    if transport == "stdio":
+        mcp.run(transport="stdio")
+        return
+    # mcp 2.x takes the transport settings here, not in the constructor.
+    # Requests are small (queries and ids), so the library's 4 MB body cap
+    # is left at its default.
+    mcp.run(transport=transport, host=host, port=port)  # type: ignore[arg-type]

@@ -40,7 +40,7 @@ src/combine_mcp/
 ├── cli.py                  # argparse CLI: `combine-mcp serve`
 ├── config.py               # DocSource dataclass + load_sources
 ├── docs_sources.json       # Bundled default source registry
-├── server.py               # FastMCP setup, lifespan, picks index backend per source
+├── server.py               # MCPServer setup, lifespan, picks index backend per source
 ├── nomenclature.py         # ATLAS_SOFTWARE_DOCS_GUIDE (resource + instructions)
 ├── resources.py            # MCP resource registration (docs://sources)
 └── tools/
@@ -56,10 +56,10 @@ src/combine_mcp/
 
 ### Tool registration pattern
 
-Each tool module exports `register(mcp: FastMCP) -> None`:
+Each tool module exports `register(mcp: MCPServer) -> None` (mcp 2.x; `MCPServer` and `Context` come from `mcp.server.mcpserver`):
 
 ```python
-def register(mcp: FastMCP) -> None:
+def register(mcp: MCPServer) -> None:
     @mcp.tool()
     async def my_tool(arg: str, *, ctx: Context[Any, Any]) -> str:
         ctxd = ctx.request_context.lifespan_context
