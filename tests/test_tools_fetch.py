@@ -36,6 +36,44 @@ Use a release tag.
 Then submit the job.
 """
 
+FENCED_MD = """# Preparing the datacard
+
+## A simple counting experiment
+
+Those lines must start with a "#":
+
+```nohighlight
+# Simple counting experiment, with one signal and a few background processes
+imax 1  number of channels
+```
+
+    ```nohighlight
+    # an indented fence, as inside an admonition
+    ```
+
+```nohighlight
+WW_norm gmN 4    -   0.16    -     -
+```
+
+## Shape analyses
+
+~~~bash
+# a shell comment
+~~~
+
+Templates are read from ROOT files.
+
+## Nested fences
+
+````markdown
+```
+# inside the inner block
+```
+````
+
+After the outer block.
+"""
+
 
 class TestCandidatePaths:
     SITE = "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest"
@@ -152,6 +190,34 @@ class TestExtractSection:
 
     def test_missing_returns_empty(self) -> None:
         assert _extract_section(SAMPLE_MD, "Doesn't Exist") == ""
+
+    def test_comment_in_code_block_is_not_a_heading(self) -> None:
+        # Shape of docs/part2/settinguptheanalysis.md: datacard comments
+        # start with "#" and used to end the section at the first example.
+        body = _extract_section(FENCED_MD, "A simple counting experiment")
+        assert "# Simple counting experiment, with one signal" in body
+        assert "# an indented fence" in body
+        assert "WW_norm gmN 4" in body
+        assert "## Shape analyses" not in body
+
+    def test_tilde_fence(self) -> None:
+        body = _extract_section(FENCED_MD, "Shape analyses")
+        assert "# a shell comment" in body
+        assert "Templates are read from ROOT files." in body
+
+    def test_longer_fence_contains_shorter_one(self) -> None:
+        body = _extract_section(FENCED_MD, "Nested fences")
+        assert "# inside the inner block" in body
+        assert "After the outer block." in body
+
+    def test_outline_skips_code_blocks(self) -> None:
+        headings = [h["heading"] for h in _make_outline(FENCED_MD)]
+        assert headings == [
+            "Preparing the datacard",
+            "A simple counting experiment",
+            "Shape analyses",
+            "Nested fences",
+        ]
 
 
 class TestFetchTool:

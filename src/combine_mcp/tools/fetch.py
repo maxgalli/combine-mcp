@@ -33,8 +33,41 @@ from combine_mcp.tools._forum_index import ForumIndex, _parse_post_selector
 from combine_mcp.tools._helpers import format_error
 from combine_mcp.tools._paper_index import PaperIndex
 
-_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+# Opening/closing line of a fenced code block. Any indentation is accepted:
+# the Combine docs indent fences inside admonitions (pymdownx.superfences).
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 _OUTLINE_MAX_LEVEL = 3
+
+
+def _headings(markdown: str) -> list[tuple[int, int, str]]:
+    """Return ``(offset, level, text)`` for each ATX heading in ``markdown``.
+
+    Lines inside fenced code blocks are skipped: a datacard or shell comment
+    such as ``# Simple counting experiment`` is not a heading, and treating
+    it as one would end a section in the middle of its example.
+    """
+    headings: list[tuple[int, int, str]] = []
+    fence = ""  # the opening fence while inside a code block
+    offset = 0
+    for line in markdown.splitlines(keepends=True):
+        stripped = line.rstrip("\r\n")
+        if m := _FENCE_RE.match(stripped):
+            marker = m.group(1)
+            if not fence:
+                fence = marker
+            # A fence closes on the same character, at least as long, with
+            # nothing after it (an info string only follows an opening one).
+            elif (
+                marker[0] == fence[0]
+                and len(marker) >= len(fence)
+                and not stripped[m.end():].strip()
+            ):
+                fence = ""
+        elif not fence and (h := _HEADING_RE.match(stripped)):
+            headings.append((offset, len(h.group(1)), h.group(2)))
+        offset += len(line)
+    return headings
 
 
 def _candidate_source_paths(
@@ -84,9 +117,9 @@ def _candidate_source_paths(
 def _make_outline(markdown: str) -> list[dict[str, Any]]:
     """Extract H1-H3 headings as ``[{level, heading}, ...]``."""
     return [
-        {"level": len(m.group(1)), "heading": m.group(2)}
-        for m in _HEADING_RE.finditer(markdown)
-        if len(m.group(1)) <= _OUTLINE_MAX_LEVEL
+        {"level": level, "heading": text}
+        for _, level, text in _headings(markdown)
+        if level <= _OUTLINE_MAX_LEVEL
     ]
 
 
@@ -97,16 +130,14 @@ def _extract_section(markdown: str, heading: str) -> str:
     ``""`` if no heading matches.
     """
     target = heading.strip().lower()
-    matches = list(_HEADING_RE.finditer(markdown))
-    for i, m in enumerate(matches):
-        if m.group(2).strip().lower() != target:
+    headings = _headings(markdown)
+    for i, (start, level, text) in enumerate(headings):
+        if text.strip().lower() != target:
             continue
-        start = m.start()
-        level = len(m.group(1))
         end = len(markdown)
-        for j in range(i + 1, len(matches)):
-            if len(matches[j].group(1)) <= level:
-                end = matches[j].start()
+        for next_start, next_level, _ in headings[i + 1:]:
+            if next_level <= level:
+                end = next_start
                 break
         return markdown[start:end].rstrip() + "\n"
     return ""
