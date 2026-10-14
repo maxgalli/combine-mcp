@@ -75,6 +75,26 @@ After the outer block.
 """
 
 
+def parse_fetch(result: str) -> dict[str, str]:
+    """Split a fetch_doc result into its ``key: value`` header and body.
+
+    The body is returned under ``"content"``; header values stay strings.
+    """
+    header, _, body = result.partition("\n\n")
+    fields = dict(line.split(": ", 1) for line in header.splitlines())
+    fields["content"] = body
+    return fields
+
+
+def outline_entries(body: str) -> set[tuple[int, str]]:
+    """``(level, heading)`` pairs from a rendered outline body."""
+    entries = set()
+    for line in body.splitlines():
+        indent = len(line) - len(line.lstrip(" "))
+        entries.add((indent // 2 + 1, line.strip().removeprefix("- ")))
+    return entries
+
+
 class TestCandidatePaths:
     SITE = "https://cms-analysis.github.io/HiggsAnalysis-CombinedLimit/latest"
 
@@ -233,12 +253,29 @@ class TestFetchTool:
         result = await tools["fetch_doc"](
             "part3/runningthetool/", ctx=mock_ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["mode"] == "markdown"
         assert data["source"] == "combine-docs"
         assert "Submit jobs with prun" in data["content"]
         assert data["url"].endswith("/part3/runningthetool/")
         assert data["source_path"] == "docs/part3/runningthetool/index.md"
+
+    async def test_body_keeps_its_line_breaks(
+        self,
+        mock_ctx: MagicMock,
+        mock_http: MagicMock,
+        make_response: Any,
+    ) -> None:
+        # Clients truncate long tool output by whole lines (opencode: 50 KB
+        # from the top). A one-line JSON body would be dropped entirely.
+        mock_http.get.return_value = make_response(text=SAMPLE_MD)
+        tools = capture_tools(register)
+
+        result = await tools["fetch_doc"](
+            "part3/runningthetool/", ctx=mock_ctx,
+        )
+        assert result.endswith(SAMPLE_MD)
+        assert len(result.splitlines()) > len(SAMPLE_MD.splitlines())
 
     async def test_unknown_source_returns_recovery(
         self,
@@ -266,7 +303,7 @@ class TestFetchTool:
         result = await tools["fetch_doc"](
             "part3/runningthetool/", ctx=mock_ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["source_path"] == "docs/part3/runningthetool.md"
         assert mock_http.get.call_count == 2
 
@@ -282,9 +319,9 @@ class TestFetchTool:
         result = await tools["fetch_doc"](
             "part3/runningthetool/", mode="outline", ctx=mock_ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["mode"] == "outline"
-        levels = {(h["level"], h["heading"]) for h in data["outline"]}
+        levels = outline_entries(data["content"])
         assert (1, "Running on the grid") in levels
         assert (2, "Build") in levels
         assert (2, "Submit") in levels
@@ -302,8 +339,8 @@ class TestFetchTool:
         result = await tools["fetch_doc"](
             "part3/runningthetool/", mode="sections:Build", ctx=mock_ctx,
         )
-        data = json.loads(result)
-        assert data["found"] is True
+        data = parse_fetch(result)
+        assert data["found"] == "true"
         assert "Compile your work area" in data["content"]
         assert "Then submit the job" not in data["content"]
 
@@ -319,9 +356,9 @@ class TestFetchTool:
         result = await tools["fetch_doc"](
             "part3/runningthetool/", mode="sections:Nonexistent", ctx=mock_ctx,
         )
-        data = json.loads(result)
-        assert data["found"] is False
-        assert data["content"] == ""
+        data = parse_fetch(result)
+        assert data["found"] == "false"
+        assert "mode='outline'" in data["content"]
 
     async def test_all_404_returns_recovery_pointing_at_search(
         self,
@@ -492,7 +529,7 @@ class TestFetchToolOnLocalPaperSource:
         result = await tools["fetch_doc"](
             "the-statistical-model", source="combine-paper", ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["source"] == "combine-paper"
         assert data["source_path"] == "the-statistical-model"
         assert data["url"].endswith("#sec-the-statistical-model")
@@ -513,9 +550,8 @@ class TestFetchToolOnLocalPaperSource:
             source="combine-paper",
             ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["source_path"] == "4-1"
-        assert data["title"] if "title" in data else True  # mode=markdown shape
         assert "counting analysis" in data["content"].lower()
 
     async def test_fetch_paper_outline_mode(
@@ -529,13 +565,12 @@ class TestFetchToolOnLocalPaperSource:
         result = await tools["fetch_doc"](
             "4-1", source="combine-paper", mode="outline", ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         # The outline of a plain-text section just sees a single heading
         # line at the top of the body ("4.1 Counting analyses"), which
         # _make_outline won't pick up because there's no '#' marker. The
         # interesting behaviour: mode is respected, not an error.
         assert data["mode"] == "outline"
-        assert "outline" in data
 
     async def test_unknown_section_returns_recovery(
         self,
@@ -621,7 +656,7 @@ class TestFetchToolOnLocalFilesSource:
         result = await tools["fetch_doc"](
             "python/ScanModel.py", source="combine-code", ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["source"] == "combine-code"
         assert data["source_path"] == "python/ScanModel.py"
         assert data["url"].endswith("blob/v10.6.0/python/ScanModel.py")
@@ -643,9 +678,9 @@ class TestFetchToolOnLocalFilesSource:
             mode="outline",
             ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["mode"] == "outline"
-        headings = {h["heading"] for h in data["outline"]}
+        headings = {h for _, h in outline_entries(data["content"])}
         assert "AsymptoticLimits" in headings or "run" in headings
 
     async def test_fetch_code_unknown_file_returns_recovery(
@@ -753,7 +788,7 @@ class TestFetchToolOnLocalForumSource:
         result = await tools["fetch_doc"](
             "142937", source="combine-forum", ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["source"] == "combine-forum"
         assert data["source_path"] == "142937"
         assert data["url"] == "https://cms-talk.web.cern.ch/t/142937"
@@ -772,7 +807,7 @@ class TestFetchToolOnLocalForumSource:
             source="combine-forum",
             ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["source_path"] == "142937"
         assert "robustHesse" in data["content"]
 
@@ -786,16 +821,14 @@ class TestFetchToolOnLocalForumSource:
         result = await tools["fetch_doc"](
             "142937", source="combine-forum", mode="outline", ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["mode"] == "outline"
-        assert data["accepted_answer_post_number"] == 10
-        post_numbers = [p["post_number"] for p in data["posts"]]
-        assert post_numbers == [1, 10]
+        assert data["accepted_answer_post_number"] == "10"
+        posts = data["content"].splitlines()
+        assert [p.split(" by ")[0] for p in posts] == ["- post 1", "- post 10"]
         # The accepted post must be flagged in the summary.
-        accepted_flag = next(
-            p["is_accepted_answer"] for p in data["posts"] if p["post_number"] == 10
-        )
-        assert accepted_flag is True
+        assert posts[1].endswith("(accepted answer)")
+        assert not posts[0].endswith("(accepted answer)")
 
     async def test_fetch_forum_post_accepted(
         self,
@@ -810,9 +843,9 @@ class TestFetchToolOnLocalForumSource:
             mode="post:accepted",
             ctx=ctx,
         )
-        data = json.loads(result)
+        data = parse_fetch(result)
         assert data["mode"] == "post:accepted"
-        assert data["post_number"] == 10
+        assert data["post_number"] == "10"
         assert data["url"].endswith("/142937/10")
         assert "robustHesse" in data["content"]
 
@@ -826,8 +859,8 @@ class TestFetchToolOnLocalForumSource:
         result = await tools["fetch_doc"](
             "142937", source="combine-forum", mode="post:1", ctx=ctx,
         )
-        data = json.loads(result)
-        assert data["post_number"] == 1
+        data = parse_fetch(result)
+        assert data["post_number"] == "1"
         assert "sharp spikes" in data["content"]
 
     async def test_fetch_forum_unknown_topic_returns_recovery(

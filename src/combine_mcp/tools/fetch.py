@@ -16,7 +16,6 @@ candidate ``docs/<path>`` and tries them in order.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 from urllib.parse import urlparse
@@ -159,6 +158,45 @@ def _project(markdown: str, mode: str) -> dict[str, Any]:
     return {"mode": "markdown", "content": markdown}
 
 
+def _render(fields: dict[str, Any]) -> str:
+    """Render a successful ``fetch_doc`` result as plain multi-line text.
+
+    A ``key: value`` header, a blank line, then the body. Not JSON on
+    purpose: JSON writes the whole body as one line, and clients that
+    truncate long tool output by whole lines (opencode keeps lines from the
+    top up to 50 KB) then show the model nothing at all. Plain text keeps
+    the body's line breaks, so a truncated page still shows its beginning
+    and stays searchable line by line.
+
+    ``content`` is the body; ``outline`` (headings or defs) and ``posts``
+    (forum thread summary) are rendered as one line per entry. Every other
+    non-``None`` field goes into the header.
+    """
+    header: list[str] = []
+    for key, value in fields.items():
+        if key in ("content", "outline", "posts") or value is None:
+            continue
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        header.append(f"{key}: {value}")
+
+    if "outline" in fields:
+        body = "\n".join(
+            f"{'  ' * (h['level'] - 1)}- {h['heading']}" for h in fields["outline"]
+        ) or "(no headings)"
+    elif "posts" in fields:
+        body = "\n".join(
+            f"- post {p['post_number']} by {p['username']}, {p['char_count']} chars"
+            + (" (accepted answer)" if p["is_accepted_answer"] else "")
+            for p in fields["posts"]
+        ) or "(no posts)"
+    else:
+        body = fields.get("content") or ""
+        if fields.get("found") is False:
+            body = "No heading matched. Use mode='outline' to list the headings."
+    return "\n".join(header) + "\n\n" + body
+
+
 def _rendered_url(docs_base: str, source_path: str) -> str:
     """Map a ``docs/<path>`` source path back to its rendered URL (MkDocs)."""
     inner = source_path[len("docs/"):] if source_path.startswith("docs/") else source_path
@@ -217,14 +255,13 @@ async def _fetch_paper_section(
         )
 
     projection = _project(section["body"], mode)
-    return json.dumps(
+    return _render(
         {
             "source": source_norm,
             "source_path": section["id"],
             "url": section["url"],
             **projection,
         },
-        default=str,
     )
 
 
@@ -291,14 +328,13 @@ async def _fetch_code_file(
     else:
         projection = _project(doc["body"], mode)
 
-    return json.dumps(
+    return _render(
         {
             "source": source_norm,
             "source_path": doc["relpath"],
             "url": doc["url"],
             **projection,
         },
-        default=str,
     )
 
 
@@ -359,7 +395,7 @@ async def _fetch_forum_thread(
             }
             for p in (topic.get("posts") or [])
         ]
-        return json.dumps(
+        return _render(
             {
                 "source": source_norm,
                 "source_path": str(topic.get("topic_id")),
@@ -369,7 +405,6 @@ async def _fetch_forum_thread(
                 "accepted_answer_post_number": accepted_n,
                 "posts": posts_summary,
             },
-            default=str,
         )
 
     # Single-post mode: "post:1" / "post:accepted".
@@ -387,7 +422,7 @@ async def _fetch_forum_thread(
                     "be marked solved.",
                 ],
             )
-        return json.dumps(
+        return _render(
             {
                 "source": source_norm,
                 "source_path": str(result["post_number"]),
@@ -397,14 +432,13 @@ async def _fetch_forum_thread(
                 "post_number": result["post_number"],
                 "content": result["body"],
             },
-            default=str,
         )
 
     # Default: full transcript.
     result = index.get_topic(url_or_path)
     if result is None:
         return _forum_unknown_topic_error(url_or_path, index)
-    return json.dumps(
+    return _render(
         {
             "source": source_norm,
             "source_path": str(
@@ -415,7 +449,6 @@ async def _fetch_forum_thread(
             "title": result["title"],
             "content": result["body"],
         },
-        default=str,
     )
 
 
@@ -498,6 +531,11 @@ def register(mcp: MCPServer) -> None:
                     - ``"post:accepted"`` — the accepted-answer post
                       (errors if the thread is unsolved; use
                       ``"outline"`` first if unsure).
+
+        Returns:
+            Plain text: a ``key: value`` header (source, source_path, url,
+            mode, ...), a blank line, then the body. Errors start with
+            ``Error:`` followed by recovery steps.
         """
         source_norm = source.strip().lower() if source else "combine-docs"
 
@@ -578,14 +616,13 @@ def register(mcp: MCPServer) -> None:
 
             markdown = response.text
             projection = _project(markdown, mode)
-            return json.dumps(
+            return _render(
                 {
                     "source": source_norm,
                     "source_path": path,
                     "url": _rendered_url(source_obj.docs_site_url, path),
                     **projection,
                 },
-                default=str,
             )
 
         return format_error(
